@@ -1,26 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Icon from '../../components/common/Icons';
 import Modal from '../../components/common/Modal';
-import {
-  getStaff,
-  saveStaff,
-  deleteStaff,
-  getActivities,
-  updateActivity,
-  getQuestions,
-  saveQuestion,
-  deleteQuestion,
-  getMedia,
-  saveMediaItem,
-  deleteMediaItem,
-  getAllSessions
-} from '../../data/storage';
 import { getAudioTrackUrl } from '../../utils/audioSynthesizer';
 import {
   analyzeMemoryPhoto,
   fetchAdminData,
+  adminCreateEntity,
   adminUpdateEntity,
   adminDeleteEntity,
+  adminUploadMedia,
   fetchPatientPhotos,
   uploadPatientPhoto,
   deletePatientPhoto
@@ -78,13 +66,12 @@ export default function AdminDashboard() {
   const [patientPhotoError, setPatientPhotoError] = useState('');
 
   const refreshData = async () => {
-    const realPatients = await fetchAdminData('patients');
-    setPatients(realPatients);
-    setStaff(getStaff());
-    setActivities(getActivities());
-    setQuestions(getQuestions());
-    setMedia(getMedia());
-    setSessions(getAllSessions());
+    setPatients(await fetchAdminData('patients') || []);
+    setStaff(await fetchAdminData('staff') || []);
+    setActivities(await fetchAdminData('activities') || []);
+    setQuestions(await fetchAdminData('questions') || []);
+    setMedia(await fetchAdminData('media') || { photos: [], audio: [] });
+    setSessions(await fetchAdminData('sessions') || []);
   };
 
   useEffect(() => {
@@ -168,17 +155,22 @@ export default function AdminDashboard() {
     setIsStaffModalOpen(true);
   };
 
-  const handleSaveStaff = (e) => {
+  const handleSaveStaff = async (e) => {
     e.preventDefault();
     if (!staffForm.name) return;
-    saveStaff(staffForm);
+    
+    // Check if creating new or updating (id implies update, but for mock let's just create/overwrite)
+    // Actually the API uses PATCH for update if id exists, but our saveStaff did create/update.
+    // If it starts with staff-, it was just created in openAddStaff. Let's just use create for all, or determine:
+    // admin.py staff endpoint uses POST for create (but also allows specifying ID).
+    await adminCreateEntity('staff', staffForm);
     setIsStaffModalOpen(false);
     refreshData();
   };
 
-  const handleDeleteStaff = (id) => {
+  const handleDeleteStaff = async (id) => {
     if (window.confirm('Remove this staff member?')) {
-      deleteStaff(id);
+      await adminDeleteEntity('staff', id);
       refreshData();
     }
   };
@@ -189,9 +181,9 @@ export default function AdminDashboard() {
     setIsActivityModalOpen(true);
   };
 
-  const handleSaveActivity = (e) => {
+  const handleSaveActivity = async (e) => {
     e.preventDefault();
-    updateActivity(activityForm);
+    await adminUpdateEntity('activities', activityForm.id, activityForm);
     setIsActivityModalOpen(false);
     refreshData();
   };
@@ -218,20 +210,20 @@ export default function AdminDashboard() {
     setIsQuestionModalOpen(true);
   };
 
-  const handleSaveQuestion = (e) => {
+  const handleSaveQuestion = async (e) => {
     e.preventDefault();
     if (!questionForm.prompt || !questionForm.correctAnswer) {
       alert('Please provide prompt and correct answer.');
       return;
     }
-    saveQuestion(questionForm);
+    await adminCreateEntity('questions', questionForm);
     setIsQuestionModalOpen(false);
     refreshData();
   };
 
-  const handleDeleteQuestion = (id) => {
+  const handleDeleteQuestion = async (id) => {
     if (window.confirm('Remove this question?')) {
-      deleteQuestion(id);
+      await adminDeleteEntity('questions', id);
       refreshData();
     }
   };
@@ -284,7 +276,8 @@ export default function AdminDashboard() {
       addedBy: '',
       url: dataUrl,
       sceneType,
-      quizQuestions
+      quizQuestions,
+      file: file
     });
 
     setIsAnalyzingPhoto(false);
@@ -292,42 +285,31 @@ export default function AdminDashboard() {
     e.target.value = null;
   };
 
-  const handleSavePhoto = (e) => {
+  const handleSavePhoto = async (e) => {
     e.preventDefault();
-    if (!photoForm.title) return;
-    saveMediaItem('photos', photoForm);
+    if (!photoForm.title || !photoForm.file) return;
+    await adminUploadMedia('photo', photoForm.file, { title: photoForm.title, category: photoForm.category });
     setIsPhotoModalOpen(false);
     refreshData();
   };
 
-  const handleDeletePhoto = (id) => {
+  const handleDeletePhoto = async (id) => {
     if (window.confirm('Remove photo from repository?')) {
-      deleteMediaItem('photos', id);
+      await adminDeleteEntity('media', id);
       refreshData();
     }
   };
 
   // Audio Management (HTML5 Audio)
-  const handleAudioUpload = (e) => {
+  const handleAudioUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target.result;
-      const newAudio = {
-        title: file.name.replace(/\.[^/.]+$/, ''),
-        artist: 'Voice / Melodic Audio',
-        duration: '0:30',
-        mood: 'Custom Audio',
-        category: 'Personal Audio',
-        url: dataUrl,
-        isSynth: false
-      };
-      saveMediaItem('audio', newAudio);
-      refreshData();
-    };
-    reader.readAsDataURL(file);
+    await adminUploadMedia('audio', file, {
+      title: file.name.replace(/\.[^/.]+$/, ''),
+      category: 'Personal Audio'
+    });
+    refreshData();
   };
 
   const handleToggleAudioPreview = (track) => {
@@ -344,9 +326,9 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleDeleteAudio = (id) => {
+  const handleDeleteAudio = async (id) => {
     if (window.confirm('Remove audio track?')) {
-      deleteMediaItem('audio', id);
+      await adminDeleteEntity('media', id);
       refreshData();
     }
   };

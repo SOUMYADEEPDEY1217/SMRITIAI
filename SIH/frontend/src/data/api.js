@@ -214,6 +214,7 @@ export async function fetchAdminData(entity) {
   if (entity === 'activities') return getActivities();
   if (entity === 'questions') return getQuestions();
   if (entity === 'media') return getMedia();
+  if (entity === 'sessions') return getAllSessions();
   return [];
 }
 
@@ -255,6 +256,26 @@ export async function adminDeleteEntity(entity, id) {
   return { status: 'local' };
 }
 
+export async function adminUploadMedia(type, file, metadata = {}) {
+  const formData = new FormData();
+  formData.append('file', file);
+  if (metadata.title) formData.append('title', metadata.title);
+  if (metadata.category) formData.append('category', metadata.category);
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/media/${type}s`, {
+      method: 'POST',
+      headers: getAuthHeadersMultipart(),
+      body: formData
+    });
+    if (res.ok) return await res.json();
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Upload failed' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Media was not uploaded.' };
+  }
+}
+
 // -------------------------------------------------------------
 // 4b. ADMIN — PER-PATIENT PHOTO FOLDERS
 // -------------------------------------------------------------
@@ -265,7 +286,8 @@ export async function fetchPatientPhotos(patientId) {
     });
     if (res.ok) return await res.json();
   } catch (e) { /* offline */ }
-  return [];
+  const localPhotos = localStorage.getItem(`smriti_patient_photos_${patientId}`);
+  return localPhotos ? JSON.parse(localPhotos) : [];
 }
 
 export async function uploadPatientPhoto(patientId, file, caption = '') {
@@ -282,7 +304,27 @@ export async function uploadPatientPhoto(patientId, file, caption = '') {
     const err = await res.json().catch(() => ({}));
     return { error: err.detail || 'Upload failed' };
   } catch (e) {
-    return { error: 'Backend unavailable. Photo was not uploaded.' };
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const newPhoto = {
+          id: `photo-${Date.now()}`,
+          patient_id: patientId,
+          url: event.target.result,
+          caption: caption,
+          uploaded_at: new Date().toISOString()
+        };
+        const existing = localStorage.getItem(`smriti_patient_photos_${patientId}`);
+        const photos = existing ? JSON.parse(existing) : [];
+        photos.unshift(newPhoto);
+        localStorage.setItem(`smriti_patient_photos_${patientId}`, JSON.stringify(photos));
+        resolve({ status: 'local', photo: newPhoto });
+      };
+      reader.onerror = () => {
+        resolve({ error: 'Backend unavailable and local read failed.' });
+      };
+      reader.readAsDataURL(file);
+    });
   }
 }
 
@@ -294,6 +336,12 @@ export async function deletePatientPhoto(patientId, photoId) {
     });
     if (res.ok) return await res.json();
   } catch (e) { /* offline */ }
+  const existing = localStorage.getItem(`smriti_patient_photos_${patientId}`);
+  if (existing) {
+    let photos = JSON.parse(existing);
+    photos = photos.filter(p => p.id !== photoId);
+    localStorage.setItem(`smriti_patient_photos_${patientId}`, JSON.stringify(photos));
+  }
   return { status: 'local' };
 }
 

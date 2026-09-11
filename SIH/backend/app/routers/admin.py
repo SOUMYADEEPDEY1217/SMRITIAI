@@ -187,7 +187,95 @@ def delete_question_admin(question_id: str, user=Depends(admin_only)):
 # --- Media Management ---
 @router.get("/media")
 def get_media_admin(user=Depends(admin_only)):
-    return DEFAULT_MEDIA
+    media = firebase_service.query_all("media")
+    if not media:
+        return DEFAULT_MEDIA
+    
+    photos = [m for m in media if m.get("type") == "photo"]
+    audio = [m for m in media if m.get("type") == "audio"]
+    return {"photos": photos, "audio": audio}
+
+@router.post("/media/photos")
+@limiter.limit(settings.RATE_LIMIT_UPLOAD)
+async def upload_global_photo(
+    request: Request,
+    title: str = Form(default="Untitled"),
+    category: str = Form(default="General"),
+    file: UploadFile = File(...),
+    user=Depends(admin_only),
+):
+    if file.content_type not in PHOTO_CONTENT_TYPES:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WEBP images are allowed.")
+    image_bytes = await file.read()
+    if len(image_bytes) > MAX_PHOTO_SIZE_BYTES:
+        raise HTTPException(status_code=400, detail="Photo exceeds the 10MB limit.")
+    if len(image_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file.")
+    
+    photo_id = f"photo-{uuid.uuid4().hex[:8]}"
+    cloudinary_id = f"global/photos/{photo_id}"
+    url = cloudinary_service.upload_photo(image_bytes, cloudinary_id)
+
+    record = {
+        "id": photo_id,
+        "type": "photo",
+        "title": title.strip(),
+        "category": category.strip(),
+        "dateAdded": datetime.utcnow().isoformat()[:10],
+        "url": url,
+        "cloudinary_id": cloudinary_id
+    }
+    firebase_service.add_document("media", record, doc_id=photo_id)
+    return {"status": "success", "photo": record}
+
+@router.post("/media/audio")
+@limiter.limit(settings.RATE_LIMIT_UPLOAD)
+async def upload_global_audio(
+    request: Request,
+    title: str = Form(default="Untitled"),
+    category: str = Form(default="Audio"),
+    file: UploadFile = File(...),
+    user=Depends(admin_only),
+):
+    audio_bytes = await file.read()
+    if len(audio_bytes) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Audio exceeds 20MB limit.")
+    if len(audio_bytes) == 0:
+        raise HTTPException(status_code=400, detail="Empty file.")
+        
+    audio_id = f"audio-{uuid.uuid4().hex[:8]}"
+    cloudinary_id = f"global/audio/{audio_id}"
+    # assuming cloudinary_service.upload_photo can handle raw/audio types if configured,
+    # or just use it (it uses auto resource type).
+    url = cloudinary_service.upload_photo(audio_bytes, cloudinary_id)
+
+    record = {
+        "id": audio_id,
+        "type": "audio",
+        "title": title.strip(),
+        "category": category.strip(),
+        "duration": "0:00", # Need client to send duration if desired
+        "url": url,
+        "cloudinary_id": cloudinary_id
+    }
+    firebase_service.add_document("media", record, doc_id=audio_id)
+    return {"status": "success", "audio": record}
+
+@router.delete("/media/{media_id}")
+def delete_media_admin(media_id: str, user=Depends(admin_only)):
+    media = firebase_service.get_document("media", media_id)
+    if not media:
+        raise HTTPException(status_code=404, detail="Media not found")
+    if media.get("cloudinary_id"):
+        res_type = "video" if media.get("type") == "audio" else "image"
+        cloudinary_service.delete_photo(media["cloudinary_id"], resource_type=res_type)
+    firebase_service.delete_document("media", media_id)
+    return {"status": "success"}
+
+# --- Activity Sessions ---
+@router.get("/sessions")
+def get_all_sessions_admin(user=Depends(admin_only)):
+    return firebase_service.query_all("activity_sessions")
 
 
 # --- Per-Patient Photo Folders ---
@@ -280,34 +368,3 @@ def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depe
     firebase_service.delete_document("pending_memories", memory.memory_id)
     return data
 
-@router.post("/patients/{patient_id}/memories")
-def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depends(admin_only)):
-    """
-    Admin-only endpoint to save a verified memory on behalf of a patient.
-    Requires a valid pending_memories record created by this admin.
-    """
-    patient = firebase_service.get_document("users", patient_id)
-    if not patient or patient.get("role") != "patient":
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    pending = firebase_service.get_document("pending_memories", memory.memory_id)
-    if not pending or pending.get("user_id") != user["uid"]:
-        raise HTTPException(
-            status_code=403,
-            detail="This memory_id was not produced by your own /analyze call.",
-        )
-
-    existing = firebase_service.get_document("memories", memory.memory_id)
-    if existing:
-        raise HTTPException(status_code=403, detail="Memory already exists.")
-
-    data = {
-        **memory.model_dump(),
-        "photo_url": pending["photo_url"],
-        "user_id": patient_id,
-        "verified": True,
-        "created_at": datetime.utcnow().isoformat(),
-    }
-    firebase_service.add_document("memories", data, doc_id=memory.memory_id)
-    firebase_service.delete_document("pending_memories", memory.memory_id)
-    return data

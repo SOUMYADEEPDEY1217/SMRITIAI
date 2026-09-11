@@ -4,7 +4,6 @@ import Icon from '../../components/common/Icons';
 import RadarFingerprint from '../../components/charts/RadarFingerprint';
 import TrendLineChart from '../../components/charts/TrendLineChart';
 import { fetchPatientDetail, savePatientNote, updatePatientDifficulty, updatePatientDetails } from '../../data/api';
-import { getPatientById, getPatientSessions, getCognitiveDomains, savePatient } from '../../data/storage';
 
 const DETAIL_FIELDS = [
   { key: 'stage', label: 'Diagnosis / Clinical Stage' },
@@ -38,13 +37,6 @@ export default function PatientProfile() {
         setDetailsDraft(data.patient);
         setSessions(data.sessions || []);
         setDomains(data.cognitive_domains || null);
-      } else {
-        const p = getPatientById(id || 'patient-1');
-        setPatient(p);
-        setNoteText(p?.notes || '');
-        setDetailsDraft(p || {});
-        setSessions(getPatientSessions(p?.id || 'patient-1'));
-        setDomains(getCognitiveDomains(p?.id || 'patient-1'));
       }
     }
     loadData();
@@ -64,7 +56,6 @@ export default function PatientProfile() {
   const handleSaveNotes = async () => {
     await savePatientNote(patient.id, noteText);
     const updated = { ...patient, notes: noteText };
-    savePatient(updated);
     setPatient(updated);
     setEditingNotes(false);
   };
@@ -83,7 +74,6 @@ export default function PatientProfile() {
       return;
     }
     const updated = { ...patient, difficulty: newDiff };
-    savePatient(updated);
     setPatient(updated);
   };
 
@@ -105,7 +95,6 @@ export default function PatientProfile() {
       return;
     }
     const updated = { ...patient, ...changes };
-    savePatient(updated);
     setPatient(updated);
     setEditingDetails(false);
   };

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Icon from '../../components/common/Icons';
-import { getCurrentUser, getActivities, getPatientSessions, getSelectedLanguage } from '../../data/storage';
+import { fetchAdminData, fetchActivityProgress } from '../../data/api';
+import { getCurrentUser, getSelectedLanguage } from '../../data/storage';
 import { getTranslation } from '../../data/translations';
 
 export default function PatientDashboard() {
@@ -12,10 +13,19 @@ export default function PatientDashboard() {
   const [currentLang, setCurrentLang] = useState(getSelectedLanguage());
 
   useEffect(() => {
-    const user = getCurrentUser();
-    setCurrentUser(user);
-    setActivities(getActivities());
-    setSessions(getPatientSessions(user?.id || 'patient-1'));
+    async function loadData() {
+      const user = getCurrentUser();
+      setCurrentUser(user);
+      
+      const [acts, progress] = await Promise.all([
+        fetchAdminData('activities'),
+        fetchActivityProgress(user?.id || 'patient-1')
+      ]);
+      
+      setActivities(acts || []);
+      setSessions(progress?.recent_sessions || []);
+    }
+    loadData();
     setCurrentLang(getSelectedLanguage());
 
     const handleLangChange = () => {

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../components/common/Icons';
-import { fetchClinicianPatients } from '../../data/api';
-import { getAllSessions, getCurrentUser } from '../../data/storage';
+import { fetchClinicianPatients, fetchAdminData } from '../../data/api';
+import { getCurrentUser } from '../../data/storage';
 
 export default function DoctorDashboard() {
   const navigate = useNavigate();
@@ -19,7 +19,8 @@ export default function DoctorDashboard() {
     async function loadData() {
       const data = await fetchClinicianPatients();
       setPatients(data);
-      setSessions(getAllSessions());
+      const sessionData = await fetchAdminData('sessions');
+      setSessions(sessionData || []);
     }
     loadData();
   }, []);

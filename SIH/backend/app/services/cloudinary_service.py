@@ -33,11 +33,10 @@ except Exception as e:
     logger.warning(f"cloudinary unavailable ({e}). Photo upload endpoint will be disabled.")
 
 
-def upload_photo(image_bytes: bytes, dest_path: str) -> str:
+def upload_photo(image_bytes: bytes, dest_path: str, resource_type: str = "auto") -> str:
     """
     dest_path example: users/{user_id}/memories/{memory_id}
-    (Cloudinary manages its own extensions/versioning, so no .jpg needed here)
-    Returns a public HTTPS URL to the uploaded image.
+    Returns a public HTTPS URL to the uploaded asset.
     """
     if not _CLOUDINARY_AVAILABLE:
         raise RuntimeError("Photo storage is not available on this server (cloudinary not installed/configured).")
@@ -45,21 +44,18 @@ def upload_photo(image_bytes: bytes, dest_path: str) -> str:
     result = cloudinary.uploader.upload(
         image_bytes,
         public_id=dest_path,
-        folder=None,  # dest_path already encodes the folder structure via slashes
-        resource_type="image",
+        folder=None,
+        resource_type=resource_type,
         overwrite=True,
     )
     return result["secure_url"]
 
 
-def delete_photo(dest_path: str) -> None:
-    """Deletes a previously-uploaded photo by its public_id (the same
-    dest_path string passed to upload_photo). Safe to call even if the
-    asset is already gone - Cloudinary just reports 'not found'.
-    """
+def delete_photo(dest_path: str, resource_type: str = "image") -> None:
+    """Deletes a previously-uploaded asset by its public_id."""
     if not _CLOUDINARY_AVAILABLE:
         return
     try:
-        cloudinary.uploader.destroy(dest_path, resource_type="image")
+        cloudinary.uploader.destroy(dest_path, resource_type=resource_type)
     except Exception as e:
         logger.warning(f"Failed to delete Cloudinary asset '{dest_path}': {e}")
