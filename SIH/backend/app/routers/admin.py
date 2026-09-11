@@ -245,9 +245,40 @@ def delete_patient_photo(patient_id: str, photo_id: str, user=Depends(admin_only
     photo = firebase_service.get_document("patient_photos", photo_id)
     if not photo or photo.get("patient_id") != patient_id:
         raise HTTPException(status_code=404, detail="Photo not found")
-    cloudinary_service.delete_photo(photo["cloudinary_id"])
     firebase_service.delete_document("patient_photos", photo_id)
     return {"status": "success"}
+
+@router.post("/patients/{patient_id}/memories")
+def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depends(admin_only)):
+    """
+    Admin-only endpoint to save a verified memory on behalf of a patient.
+    Requires a valid pending_memories record created by this admin.
+    """
+    patient = firebase_service.get_document("users", patient_id)
+    if not patient or patient.get("role") != "patient":
+        raise HTTPException(status_code=404, detail="Patient not found")
+
+    pending = firebase_service.get_document("pending_memories", memory.memory_id)
+    if not pending or pending.get("user_id") != user["uid"]:
+        raise HTTPException(
+            status_code=403,
+            detail="This memory_id was not produced by your own /analyze call.",
+        )
+
+    existing = firebase_service.get_document("memories", memory.memory_id)
+    if existing:
+        raise HTTPException(status_code=403, detail="Memory already exists.")
+
+    data = {
+        **memory.model_dump(),
+        "photo_url": pending["photo_url"],
+        "user_id": patient_id,
+        "verified": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    firebase_service.add_document("memories", data, doc_id=memory.memory_id)
+    firebase_service.delete_document("pending_memories", memory.memory_id)
+    return data
 
 @router.post("/patients/{patient_id}/memories")
 def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depends(admin_only)):

@@ -388,6 +388,21 @@ export async function saveVerifiedMemory(memoryData) {
   }
 }
 
+export async function saveAdminPatientMemory(patientId, memoryData) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/patients/${patientId}/memories`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(memoryData)
+    });
+    if (res.ok) return await res.json();
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Save failed' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Cannot save admin patient memory.' };
+  }
+}
+
 export async function listMemories() {
   try {
     const res = await fetch(`${API_BASE_URL}/api/memories/`, {
