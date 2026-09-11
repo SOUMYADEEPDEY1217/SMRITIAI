@@ -288,6 +288,8 @@ async def upload_patient_photo(
     request: Request,
     patient_id: str,
     caption: str = Form(default=""),
+    relationship: str = Form(default=""),
+    location: str = Form(default=""),
     file: UploadFile = File(...),
     user=Depends(admin_only),
 ):
@@ -315,6 +317,8 @@ async def upload_patient_photo(
         "cloudinary_id": cloudinary_id,
         "url": url,
         "caption": caption.strip(),
+        "relationship": relationship.strip(),
+        "location": location.strip(),
         "uploaded_by": user.get("uid"),
         "uploaded_at": datetime.utcnow().isoformat(),
     }
