@@ -78,7 +78,7 @@ export default function LoginPage() {
             <Link to="/" className="auth-brand-badge" aria-label="Return to home">
               <span className="auth-accent-pip"></span>
               <span style={{ fontWeight: 800, fontSize: '1.25rem', letterSpacing: '-0.02em' }}>
-                Cognitive Care
+                Smriti
               </span>
             </Link>
 
@@ -123,7 +123,7 @@ export default function LoginPage() {
           </div>
 
           <div style={{ fontSize: '0.82rem', color: '#94a3b8' }}>
-            &copy; {new Date().getFullYear()} Cognitive Care Platform. All rights reserved.
+            &copy; {new Date().getFullYear()} Smriti Platform. All rights reserved.
           </div>
         </div>
 
@@ -151,7 +151,7 @@ export default function LoginPage() {
 
           <div style={{ marginBottom: '1.25rem' }}>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em' }}>
-              {authMode === 'login' ? 'Welcome back' : 'Join Cognitive Care'}
+              {authMode === 'login' ? 'Welcome back' : 'Join Smriti'}
             </h1>
             <p style={{ fontSize: '0.92rem', color: '#64748b', marginTop: '0.25rem' }}>
               {authMode === 'login'

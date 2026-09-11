@@ -2,9 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '../../components/common/Icons';
 import Modal from '../../components/common/Modal';
 import {
-  getPatients,
-  savePatient,
-  deletePatient,
   getStaff,
   saveStaff,
   deleteStaff,
@@ -19,6 +16,15 @@ import {
   getAllSessions
 } from '../../data/storage';
 import { getAudioTrackUrl } from '../../utils/audioSynthesizer';
+import {
+  analyzeMemoryPhoto,
+  fetchAdminData,
+  adminUpdateEntity,
+  adminDeleteEntity,
+  fetchPatientPhotos,
+  uploadPatientPhoto,
+  deletePatientPhoto
+} from '../../data/api';
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -58,8 +64,22 @@ export default function AdminDashboard() {
   const [previewingAudioId, setPreviewingAudioId] = useState(null);
   const audioPreviewRef = useRef(null);
 
-  const refreshData = () => {
-    setPatients(getPatients());
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [photoForm, setPhotoForm] = useState({ id: '', title: '', category: '', caption: '', people: '', placeName: '', placeDescription: '', occasion: '', url: '', sceneType: 'unknown', quizQuestions: [] });
+  const [aiHypothesis, setAiHypothesis] = useState(null);
+  const [isAnalyzingPhoto, setIsAnalyzingPhoto] = useState(false);
+
+  // Per-patient photo folder (admin-only upload, organized by patient)
+  const [isPhotoManagerOpen, setIsPhotoManagerOpen] = useState(false);
+  const [managingPatient, setManagingPatient] = useState(null);
+  const [patientPhotos, setPatientPhotos] = useState([]);
+  const [patientPhotoCaption, setPatientPhotoCaption] = useState('');
+  const [isUploadingPatientPhoto, setIsUploadingPatientPhoto] = useState(false);
+  const [patientPhotoError, setPatientPhotoError] = useState('');
+
+  const refreshData = async () => {
+    const realPatients = await fetchAdminData('patients');
+    setPatients(realPatients);
     setStaff(getStaff());
     setActivities(getActivities());
     setQuestions(getQuestions());
@@ -71,40 +91,62 @@ export default function AdminDashboard() {
     refreshData();
   }, []);
 
-  // Patient CRUD
-  const openAddPatient = () => {
-    setPatientForm({
-      id: `patient-${Date.now()}`,
-      name: '',
-      age: 70,
-      gender: 'Male',
-      stage: 'Mild Cognitive Impairment',
-      difficulty: 'Medium',
-      primaryCaregiver: '',
-      phone: '',
-      riskStatus: 'Stable'
-    });
-    setIsPatientModalOpen(true);
-  };
-
+  // Patient management — accounts are created by patients themselves via
+  // signup, so admin can edit clinical/contact details and manage photos,
+  // but can't fabricate a login-capable account here.
   const openEditPatient = (p) => {
     setPatientForm(p);
     setIsPatientModalOpen(true);
   };
 
-  const handleSavePatient = (e) => {
+  const handleSavePatient = async (e) => {
     e.preventDefault();
-    if (!patientForm.name) return;
-    savePatient(patientForm);
+    const { id, name, email, role, ...editable } = patientForm;
+    const result = await adminUpdateEntity('patients', id, editable);
+    if (result?.error) {
+      alert(result.error);
+      return;
+    }
     setIsPatientModalOpen(false);
     refreshData();
   };
 
-  const handleDeletePatient = (id) => {
-    if (window.confirm('Remove this patient record?')) {
-      deletePatient(id);
+  const handleDeletePatient = async (id) => {
+    if (window.confirm('Remove this patient account and all their uploaded photos? This cannot be undone.')) {
+      await adminDeleteEntity('patients', id);
       refreshData();
     }
+  };
+
+  // Per-patient photo folder
+  const openPhotoManager = async (patient) => {
+    setManagingPatient(patient);
+    setPatientPhotoCaption('');
+    setPatientPhotoError('');
+    setIsPhotoManagerOpen(true);
+    setPatientPhotos(await fetchPatientPhotos(patient.id));
+  };
+
+  const handleUploadPatientPhoto = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !managingPatient) return;
+    setIsUploadingPatientPhoto(true);
+    setPatientPhotoError('');
+    const result = await uploadPatientPhoto(managingPatient.id, file, patientPhotoCaption);
+    setIsUploadingPatientPhoto(false);
+    e.target.value = '';
+    if (result?.error) {
+      setPatientPhotoError(result.error);
+      return;
+    }
+    setPatientPhotoCaption('');
+    setPatientPhotos(await fetchPatientPhotos(managingPatient.id));
+  };
+
+  const handleDeletePatientPhoto = async (photoId) => {
+    if (!managingPatient) return;
+    await deletePatientPhoto(managingPatient.id, photoId);
+    setPatientPhotos(await fetchPatientPhotos(managingPatient.id));
   };
 
   // Staff CRUD
@@ -195,23 +237,67 @@ export default function AdminDashboard() {
   };
 
   // Photo Management (File API)
-  const handlePhotoUpload = (e) => {
+  const handlePhotoUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target.result;
-      const newPhoto = {
-        title: file.name.replace(/\.[^/.]+$/, ''),
-        category: 'Keepsake Photo',
-        caption: `Custom keepsake photo added on ${new Date().toLocaleDateString()}`,
-        url: dataUrl
-      };
-      saveMediaItem('photos', newPhoto);
-      refreshData();
-    };
-    reader.readAsDataURL(file);
+    setIsAnalyzingPhoto(true);
+
+    // Convert to dataUrl for preview/save
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => resolve(event.target.result);
+      reader.readAsDataURL(file);
+    });
+
+    let hypothesis = null;
+    let sceneType = 'unknown';
+    let title = file.name.replace(/\.[^/.]+$/, '');
+    let category = 'Keepsake Photo';
+    let caption = '';
+    let quizQuestions = [];
+
+    try {
+      const result = await analyzeMemoryPhoto(file);
+      if (result && !result.error && result.hypothesis) {
+        hypothesis = result.hypothesis;
+        sceneType = hypothesis.scene_type || 'unknown';
+        title = hypothesis.scene || title;
+        category = hypothesis.activity || category;
+        caption = hypothesis.context || '';
+        quizQuestions = hypothesis.quiz_questions || [];
+      }
+    } catch (err) {
+      console.error('Photo analysis failed:', err);
+    }
+
+    setAiHypothesis(hypothesis);
+    setPhotoForm({
+      id: `photo-${Date.now()}`,
+      title,
+      category,
+      caption,
+      people: '',
+      placeName: hypothesis?.landmark_name || '',
+      placeDescription: hypothesis?.landmark_description || '',
+      occasion: '',
+      addedBy: '',
+      url: dataUrl,
+      sceneType,
+      quizQuestions
+    });
+
+    setIsAnalyzingPhoto(false);
+    setIsPhotoModalOpen(true);
+    e.target.value = null;
+  };
+
+  const handleSavePhoto = (e) => {
+    e.preventDefault();
+    if (!photoForm.title) return;
+    saveMediaItem('photos', photoForm);
+    setIsPhotoModalOpen(false);
+    refreshData();
   };
 
   const handleDeletePhoto = (id) => {
@@ -337,9 +423,6 @@ export default function AdminDashboard() {
                 Quick Management Actions
               </h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <button onClick={openAddPatient} className="btn btn-primary">
-                  Enroll New Patient
-                </button>
                 <button onClick={openAddStaff} className="btn btn-secondary">
                   Add Doctor or Nurse
                 </button>
@@ -379,8 +462,8 @@ export default function AdminDashboard() {
               onChange={(e) => setPatientSearch(e.target.value)}
               aria-label="Search patients"
             />
-            <button onClick={openAddPatient} className="btn btn-primary">
-              Add New Patient
+            <button onClick={() => alert('Patient accounts are created by patients themselves via Sign Up — admin can edit clinical details and manage photos, but not create the login.')} className="btn btn-secondary">
+              How patients get added
             </button>
           </div>
 
@@ -398,20 +481,29 @@ export default function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {patients
-                  .filter(p => p.name.toLowerCase().includes(patientSearch.toLowerCase()) || p.primaryCaregiver?.toLowerCase().includes(patientSearch.toLowerCase()))
+                {patients.length === 0 ? (
+                  <tr>
+                    <td colSpan="7" style={{ textAlign: 'center', padding: '3rem', color: 'var(--color-text-muted)' }}>
+                      No patients have signed up yet.
+                    </td>
+                  </tr>
+                ) : patients
+                  .filter(p => p.name?.toLowerCase().includes(patientSearch.toLowerCase()) || p.primaryCaregiver?.toLowerCase().includes(patientSearch.toLowerCase()))
                   .map((p) => (
                     <tr key={p.id}>
                       <td><strong>{p.name}</strong></td>
-                      <td>{p.age} yrs • {p.gender}</td>
-                      <td>{p.stage}</td>
+                      <td>{p.age ? `${p.age} yrs` : 'Not set'} • {p.gender || 'Not set'}</td>
+                      <td>{p.stage || 'Not set'}</td>
                       <td><span className="badge badge-neutral">{p.difficulty}</span></td>
-                      <td><span className={`badge badge-${p.riskStatus === 'Stable' ? 'easy' : 'hard'}`}>{p.riskStatus}</span></td>
-                      <td>{p.primaryCaregiver} ({p.phone})</td>
+                      <td><span className={`badge badge-${p.riskStatus === 'Stable' ? 'easy' : 'hard'}`}>{p.riskStatus || 'Not set'}</span></td>
+                      <td>{p.primaryCaregiver || 'Not set'} {p.phone ? `(${p.phone})` : ''}</td>
                       <td>
-                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                           <button onClick={() => openEditPatient(p)} className="btn btn-secondary btn-small">
                             Edit
+                          </button>
+                          <button onClick={() => openPhotoManager(p)} className="btn btn-secondary btn-small">
+                            Photos
                           </button>
                           <button onClick={() => handleDeletePatient(p.id)} className="btn btn-secondary btn-small" style={{ color: 'var(--color-danger)' }}>
                             Delete
@@ -595,13 +687,14 @@ export default function AdminDashboard() {
               </p>
             </div>
 
-            <label className="btn btn-primary" style={{ cursor: 'pointer' }}>
-              <span>Select Photo from Device</span>
+            <label className="btn btn-primary" style={{ cursor: 'pointer', opacity: isAnalyzingPhoto ? 0.7 : 1 }}>
+              <span>{isAnalyzingPhoto ? 'Analyzing with AI...' : 'Select Photo from Device'}</span>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handlePhotoUpload}
                 style={{ display: 'none' }}
+                disabled={isAnalyzingPhoto}
               />
             </label>
           </div>
@@ -698,9 +791,131 @@ export default function AdminDashboard() {
       {/* MODALS */}
       {/* ========================================================= */}
       <Modal
+        isOpen={isPhotoModalOpen}
+        onClose={() => setIsPhotoModalOpen(false)}
+        title={`📸 AI Photo Review${photoForm.sceneType && photoForm.sceneType !== 'unknown' ? ` — ${photoForm.sceneType.charAt(0).toUpperCase() + photoForm.sceneType.slice(1)} Detected` : ''}`}
+        footer={
+          <>
+            <button onClick={() => setIsPhotoModalOpen(false)} className="btn btn-secondary">Cancel</button>
+            <button onClick={handleSavePhoto} className="btn btn-primary">Save to Library</button>
+          </>
+        }
+      >
+        <form onSubmit={handleSavePhoto}>
+          {/* Photo Preview */}
+          {photoForm.url && (
+            <div style={{ marginBottom: '1rem', textAlign: 'center', background: 'var(--color-bg-surface)', padding: '1rem', borderRadius: '8px' }}>
+              <img src={photoForm.url} alt="Preview" style={{ maxHeight: '180px', borderRadius: '8px', objectFit: 'contain' }} />
+            </div>
+          )}
+
+          {/* AI Scene Tag */}
+          {aiHypothesis && (
+            <div style={{ marginBottom: '1rem', padding: '0.7rem 1rem', background: 'var(--color-indigo-tint, #eef2ff)', borderRadius: '8px', fontSize: '0.88rem', color: 'var(--color-primary)' }}>
+              <strong>AI says:</strong> {aiHypothesis.context || 'Scene analyzed — please review and confirm details below.'}
+              {aiHypothesis.confidence != null && (
+                <span style={{ marginLeft: '0.5rem', opacity: 0.7 }}>({Math.round(aiHypothesis.confidence * 100)}% confident)</span>
+              )}
+            </div>
+          )}
+
+          {/* Always: Scene Title */}
+          <div className="form-group">
+            <label className="form-label">Scene / Title</label>
+            <input type="text" className="form-control" value={photoForm.title}
+              onChange={(e) => setPhotoForm({ ...photoForm, title: e.target.value })} required />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">👤 Who added this photo?</label>
+            <input type="text" className="form-control"
+              placeholder="e.g. Trishan, Son, Daughter"
+              value={photoForm.addedBy}
+              onChange={(e) => setPhotoForm({ ...photoForm, addedBy: e.target.value })} />
+          </div>
+
+          {/* PEOPLE: Who is in this photo? */}
+          {(photoForm.sceneType === 'people' || photoForm.sceneType === 'event' || photoForm.sceneType === 'mixed' || photoForm.sceneType === 'unknown' || (aiHypothesis?.people_count > 0)) && (
+            <div className="form-group">
+              <label className="form-label">👥 Who is this? <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>(Required for memory quiz)</span></label>
+              <input type="text" className="form-control"
+                placeholder="e.g. Trishan, Grandma, Uncle Raj — separate with commas"
+                value={photoForm.people}
+                onChange={(e) => setPhotoForm({ ...photoForm, people: e.target.value })} />
+              {aiHypothesis?.people_count > 0 && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '0.3rem' }}>
+                  AI detected {aiHypothesis.people_count} {aiHypothesis.people_count === 1 ? 'person' : 'people'} in this photo.
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LANDMARK: Place name + description */}
+          {(photoForm.sceneType === 'landmark') && (
+            <>
+              <div className="form-group">
+                <label className="form-label">🏛️ What is this place? <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>(Required for quiz)</span></label>
+                <input type="text" className="form-control"
+                  placeholder="e.g. Taj Mahal, Eiffel Tower, Gateway of India"
+                  value={photoForm.placeName}
+                  onChange={(e) => setPhotoForm({ ...photoForm, placeName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">📖 About this place</label>
+                <textarea className="form-control" rows="2"
+                  placeholder="A brief description to help the patient remember this place..."
+                  value={photoForm.placeDescription}
+                  onChange={(e) => setPhotoForm({ ...photoForm, placeDescription: e.target.value })}></textarea>
+              </div>
+            </>
+          )}
+
+          {/* EVENT: Occasion name */}
+          {(photoForm.sceneType === 'event') && (
+            <div className="form-group">
+              <label className="form-label">🎉 What was the occasion?</label>
+              <input type="text" className="form-control"
+                placeholder="e.g. Trishan's birthday 2022, Diwali celebration at home"
+                value={photoForm.occasion}
+                onChange={(e) => setPhotoForm({ ...photoForm, occasion: e.target.value })} />
+            </div>
+          )}
+
+          {/* PLACE (non-landmark): Location context */}
+          {(photoForm.sceneType === 'place') && (
+            <div className="form-group">
+              <label className="form-label">📍 What is this place?</label>
+              <input type="text" className="form-control"
+                placeholder="e.g. Our home in Jaipur, the old family garden"
+                value={photoForm.placeName}
+                onChange={(e) => setPhotoForm({ ...photoForm, placeName: e.target.value })} />
+            </div>
+          )}
+
+          {/* Always: Context / Memory story */}
+          <div className="form-group">
+            <label className="form-label">💬 What is the context?</label>
+            <textarea className="form-control" value={photoForm.caption} rows="3"
+              placeholder="Add more contexts here... Describe the moment, story, or memories."
+              onChange={(e) => setPhotoForm({ ...photoForm, caption: e.target.value })}></textarea>
+          </div>
+
+          {/* AI Quiz Questions Preview */}
+          {photoForm.quizQuestions && photoForm.quizQuestions.length > 0 && (
+            <div style={{ background: 'var(--color-bg-surface)', borderRadius: '8px', padding: '0.85rem 1rem', marginTop: '0.5rem' }}>
+              <div style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--color-text-muted)', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>🤖 AI-suggested quiz questions from this photo:</div>
+              {photoForm.quizQuestions.map((q, i) => (
+                <div key={i} style={{ fontSize: '0.88rem', color: 'var(--color-text-body)', padding: '0.3rem 0', borderBottom: i < photoForm.quizQuestions.length - 1 ? '1px solid var(--color-border)' : 'none' }}>• {q}</div>
+              ))}
+            </div>
+          )}
+        </form>
+      </Modal>
+
+      <Modal
         isOpen={isPatientModalOpen}
         onClose={() => setIsPatientModalOpen(false)}
-        title={patientForm.id ? "Edit Patient Profile" : "Enroll New Patient"}
+        title="Edit Patient Clinical Details"
         footer={
           <>
             <button onClick={() => setIsPatientModalOpen(false)} className="btn btn-secondary">Cancel</button>
@@ -715,8 +930,8 @@ export default function AdminDashboard() {
               type="text"
               className="form-control"
               value={patientForm.name}
-              onChange={(e) => setPatientForm({ ...patientForm, name: e.target.value })}
-              required
+              disabled
+              title="The patient's name is set at signup and can't be changed here."
             />
           </div>
 
@@ -805,6 +1020,66 @@ export default function AdminDashboard() {
             />
           </div>
         </form>
+      </Modal>
+
+      {/* Per-Patient Photo Folder */}
+      <Modal
+        isOpen={isPhotoManagerOpen}
+        onClose={() => setIsPhotoManagerOpen(false)}
+        title={managingPatient ? `Photos — ${managingPatient.name}` : 'Patient Photos'}
+        footer={<button onClick={() => setIsPhotoManagerOpen(false)} className="btn btn-secondary">Close</button>}
+      >
+        <div className="form-group">
+          <label className="form-label">Caption (optional)</label>
+          <input
+            type="text"
+            className="form-control"
+            value={patientPhotoCaption}
+            onChange={(e) => setPatientPhotoCaption(e.target.value)}
+            placeholder="e.g. Family visit, March 2026"
+          />
+        </div>
+
+        <label className="btn btn-primary" style={{ cursor: 'pointer', opacity: isUploadingPatientPhoto ? 0.7 : 1, display: 'inline-block', marginBottom: '1rem' }}>
+          <span>{isUploadingPatientPhoto ? 'Uploading...' : 'Upload Photo'}</span>
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            onChange={handleUploadPatientPhoto}
+            disabled={isUploadingPatientPhoto}
+            style={{ display: 'none' }}
+          />
+        </label>
+
+        {patientPhotoError && (
+          <p style={{ fontSize: '0.85rem', color: 'var(--color-danger)', marginBottom: '1rem' }}>{patientPhotoError}</p>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+          {patientPhotos.length === 0 ? (
+            <p style={{ color: 'var(--color-text-muted)', gridColumn: '1 / -1' }}>
+              No photos uploaded yet for this patient.
+            </p>
+          ) : (
+            patientPhotos.map((photo) => (
+              <div key={photo.id} style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                <img src={photo.url} alt={photo.caption || 'Patient photo'} style={{ width: '100%', height: '110px', objectFit: 'cover', display: 'block' }} />
+                {photo.caption && (
+                  <div style={{ fontSize: '0.75rem', padding: '0.35rem 0.5rem', color: 'var(--color-text-muted)' }}>
+                    {photo.caption}
+                  </div>
+                )}
+                <button
+                  onClick={() => handleDeletePatientPhoto(photo.id)}
+                  className="btn btn-small"
+                  style={{ position: 'absolute', top: '0.3rem', right: '0.3rem', background: 'rgba(0,0,0,0.6)', color: '#fff', border: 'none', padding: '0.15rem 0.5rem' }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
+        </div>
       </Modal>
 
       <Modal

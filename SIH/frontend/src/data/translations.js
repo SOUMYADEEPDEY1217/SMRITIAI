@@ -1,4 +1,4 @@
-// Cognitive Care Multilingual Localization System
+// Smriti Multilingual Localization System
 // Supports English, Bengali (বাংলা), and Hindi (हिन्दी) for patient-facing comfort.
 
 export const SUPPORTED_LANGUAGES = [
@@ -9,7 +9,7 @@ export const SUPPORTED_LANGUAGES = [
 
 export const TRANSLATIONS = {
   en: {
-    brandName: 'Cognitive Care',
+    brandName: 'Smriti',
     tagline: 'Memory Support & Cognitive Stimulation',
     welcomePrefix: 'Welcome,',
     welcomeSubtitle: 'Your daily space for calm memory engagement and cognitive wellness.',

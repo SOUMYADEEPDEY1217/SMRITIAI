@@ -50,3 +50,16 @@ def upload_photo(image_bytes: bytes, dest_path: str) -> str:
         overwrite=True,
     )
     return result["secure_url"]
+
+
+def delete_photo(dest_path: str) -> None:
+    """Deletes a previously-uploaded photo by its public_id (the same
+    dest_path string passed to upload_photo). Safe to call even if the
+    asset is already gone - Cloudinary just reports 'not found'.
+    """
+    if not _CLOUDINARY_AVAILABLE:
+        return
+    try:
+        cloudinary.uploader.destroy(dest_path, resource_type="image")
+    except Exception as e:
+        logger.warning(f"Failed to delete Cloudinary asset '{dest_path}': {e}")

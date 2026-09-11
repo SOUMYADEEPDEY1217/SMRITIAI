@@ -75,13 +75,13 @@ export default function Navbar() {
           <Link
             to={role === 'patient' ? '/patient' : role === 'doctor' || role === 'nurse' ? '/doctor' : role === 'admin' ? '/admin' : '/'}
             className="brand-wrapper"
-            aria-label="Cognitive Care Home"
+            aria-label="Smriti Home"
           >
             <div className="brand-logo-mark">
               <Icon name="heart" size={20} color="#ffffff" />
             </div>
             <div>
-              <div className="brand-name">Cognitive Care</div>
+              <div className="brand-name">Smriti</div>
             </div>
           </Link>
 

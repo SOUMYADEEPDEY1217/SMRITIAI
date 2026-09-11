@@ -1,5 +1,5 @@
 """
-App entrypoint for Cognitive Care / SMRITI-AI Platform.
+App entrypoint for Smriti / SMRITI-AI Platform.
 Cross-cutting security controls:
   - CORS allowlist (including local Vite dev server port 5173)
   - Rate limiting
@@ -31,7 +31,7 @@ from app.routers import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app")
 
-app = FastAPI(title="Cognitive Care Platform API", version="2.0.0")
+app = FastAPI(title="Smriti Platform API", version="2.0.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

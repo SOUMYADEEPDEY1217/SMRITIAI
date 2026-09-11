@@ -130,101 +130,107 @@ print("All external deps mocked. Importing real app code...")
 from fastapi.testclient import TestClient
 from app.main import app
 
-client = TestClient(app)
-
-# ---- 1. health check ----
-r = client.get("/health")
-print("GET /health ->", r.status_code, r.json())
-assert r.status_code == 200
-
-# ---- 2. auth required ----
-r = client.get("/api/reminders/")
-print("GET /api/reminders/ (no auth) ->", r.status_code)
-assert r.status_code == 401
-
-# ---- 3. authenticated reminder create + list ----
-headers = {"Authorization": "Bearer faketoken"}
-r = client.post("/api/reminders/", json={"title": "Take medication", "due_at": "2026-09-11T09:00:00Z"}, headers=headers)
-print("POST /api/reminders/ ->", r.status_code, r.json())
-assert r.status_code == 200
-reminder_id = r.json()["reminder_id"]
-
-r = client.get("/api/reminders/", headers=headers)
-print("GET /api/reminders/ ->", r.status_code, len(r.json()), "reminder(s)")
-assert r.status_code == 200 and len(r.json()) == 1
-
-# ---- 4. IDOR check: different user can't see/edit it ----
-auth_mod.verify_id_token.return_value = {"uid": "other-user-456"}
-r = client.get(f"/api/reminders/", headers=headers)
-print("GET /api/reminders/ (different user) ->", r.status_code, len(r.json()), "reminder(s) [expect 0]")
-assert len(r.json()) == 0
-
-r = client.patch(f"/api/reminders/{reminder_id}", json={"title": "hacked"}, headers=headers)
-print(f"PATCH other user's reminder ->", r.status_code, "[expect 404]")
-assert r.status_code == 404
-auth_mod.verify_id_token.return_value = {"uid": "test-user-123", "email": "test@example.com"}
-
-# ---- 5. memories analyze -> save flow (IDOR / provenance check) ----
-fake_image = io.BytesIO(b"\x89PNG\r\n\x1a\nfakepngbytesfortestingonly")
-r = client.post("/api/memories/analyze", headers=headers,
-                 files={"file": ("test.png", fake_image, "image/png")})
-print("POST /api/memories/analyze ->", r.status_code, r.json() if r.status_code != 200 else "(truncated)")
-assert r.status_code == 200
-memory_id = r.json()["memory_id"]
-photo_url = r.json()["photo_url"]
-
-r = client.post("/api/memories/", headers=headers, json={
-    "memory_id": memory_id, "photo_url": "https://attacker.com/spoofed.jpg",
-    "people": ["Mom"], "location": "the park", "activity": "walking",
-})
-print("POST /api/memories/ (save) ->", r.status_code)
-assert r.status_code == 200
-assert r.json()["photo_url"] == photo_url  # confirms client-supplied photo_url was ignored, server one used
-print("  confirmed: server-side photo_url used, not the client-spoofed one")
-
-# replay should now fail (pending_memories deleted after use)
-r = client.post("/api/memories/", headers=headers, json={
-    "memory_id": memory_id, "photo_url": photo_url, "people": [], "location": None, "activity": None,
-})
-print("POST /api/memories/ (replay same memory_id) ->", r.status_code, "[expect 403, single-use token consumed... "
-      "or 200 if same-user re-save is intended - checking actual behavior]")
-
-# ---- 6. quiz generate -> submit, self-grading exploit check ----
-r = client.post(f"/api/quiz/generate?memory_id={memory_id}", headers=headers)
-print("POST /api/quiz/generate ->", r.status_code, r.json())
-questions = r.json().get("questions", [])
-if questions:
-    q = questions[0]
-    r = client.post("/api/quiz/submit", headers=headers, json={
-        "question_id": q["question_id"], "given_answer": "totally wrong on purpose",
-        "response_time": 1.2, "difficulty": "medium",
+def test_smoke():
+    global _fake_firestore_docs
+    _fake_firestore_docs.clear()
+    client = TestClient(app)
+    
+    # ---- 1. health check ----
+    r = client.get("/health")
+    print("GET /health ->", r.status_code, r.json())
+    assert r.status_code == 200
+    
+    # ---- 2. auth required ----
+    r = client.get("/api/reminders/")
+    print("GET /api/reminders/ (no auth) ->", r.status_code)
+    assert r.status_code == 401
+    
+    # ---- 3. authenticated reminder create + list ----
+    from app.routers.auth import _make_token
+    valid_token = _make_token("test-user-123", "test@example.com", "patient")
+    headers = {"Authorization": f"Bearer {valid_token}"}
+    r = client.post("/api/reminders/", json={"title": "Take medication", "due_at": "2026-09-11T09:00:00Z"}, headers=headers)
+    print("POST /api/reminders/ ->", r.status_code, r.json())
+    assert r.status_code == 200
+    reminder_id = r.json()["reminder_id"]
+    
+    r = client.get("/api/reminders/", headers=headers)
+    print("GET /api/reminders/ ->", r.status_code, len(r.json()), "reminder(s)")
+    assert r.status_code == 200 and len(r.json()) == 1
+    
+    # ---- 4. IDOR check: different user can't see/edit it ----
+    other_token = _make_token("other-user-456", "other@example.com", "patient")
+    other_headers = {"Authorization": f"Bearer {other_token}"}
+    r = client.get(f"/api/reminders/", headers=other_headers)
+    print("GET /api/reminders/ (different user) ->", r.status_code, len(r.json()), "reminder(s) [expect 0]")
+    assert len(r.json()) == 0
+    
+    r = client.patch(f"/api/reminders/{reminder_id}", json={"title": "hacked"}, headers=other_headers)
+    print(f"PATCH other user's reminder ->", r.status_code, "[expect 404]")
+    assert r.status_code == 404
+    auth_mod.verify_id_token.return_value = {"uid": "test-user-123", "email": "test@example.com"}
+    
+    # ---- 5. memories analyze -> save flow (IDOR / provenance check) ----
+    fake_image = io.BytesIO(b"\x89PNG\r\n\x1a\nfakepngbytesfortestingonly")
+    r = client.post("/api/memories/analyze", headers=headers,
+                     files={"file": ("test.png", fake_image, "image/png")})
+    print("POST /api/memories/analyze ->", r.status_code, r.json() if r.status_code != 200 else "(truncated)")
+    assert r.status_code == 200
+    memory_id = r.json()["memory_id"]
+    photo_url = r.json()["photo_url"]
+    
+    r = client.post("/api/memories/", headers=headers, json={
+        "memory_id": memory_id, "photo_url": "https://attacker.com/spoofed.jpg",
+        "people": ["Mom"], "location": "the park", "activity": "walking",
     })
-    print("POST /api/quiz/submit (wrong answer) ->", r.status_code, r.json())
-    assert r.json()["correct"] is False
-
-    # replay attempt
-    r = client.post("/api/quiz/submit", headers=headers, json={
-        "question_id": q["question_id"], "given_answer": "Mom",
-        "response_time": 0.1, "difficulty": "medium",
+    print("POST /api/memories/ (save) ->", r.status_code)
+    assert r.status_code == 200
+    assert r.json()["photo_url"] == photo_url  # confirms client-supplied photo_url was ignored, server one used
+    print("  confirmed: server-side photo_url used, not the client-spoofed one")
+    
+    # replay should now fail (pending_memories deleted after use)
+    r = client.post("/api/memories/", headers=headers, json={
+        "memory_id": memory_id, "photo_url": photo_url, "people": [], "location": None, "activity": None,
     })
-    print("POST /api/quiz/submit (replay same question_id) ->", r.status_code, r.json(), "[expect error, already used]")
-    assert "error" in r.json()
-
-# ---- 7. invalid difficulty rejected ----
-r = client.post(f"/api/quiz/generate?memory_id={memory_id}&difficulty=nonsense", headers=headers)
-print("POST /api/quiz/generate?difficulty=nonsense ->", r.status_code, "[expect 422 validation error]")
-assert r.status_code == 422
-
-# ---- 8. upload validation: bad content-type rejected ----
-r = client.post("/api/memories/analyze", headers=headers,
-                 files={"file": ("test.txt", io.BytesIO(b"not an image"), "text/plain")})
-print("POST /api/memories/analyze (text file) ->", r.status_code, "[expect 400]")
-assert r.status_code == 400
-
-# ---- 9. security headers present ----
-r = client.get("/health")
-print("Security headers:", {k: r.headers.get(k) for k in
-      ["x-content-type-options", "x-frame-options", "strict-transport-security"]})
-assert r.headers.get("x-content-type-options") == "nosniff"
-
-print("\nALL SMOKE TESTS PASSED")
+    print("POST /api/memories/ (replay same memory_id) ->", r.status_code, "[expect 403, single-use token consumed... "
+          "or 200 if same-user re-save is intended - checking actual behavior]")
+    
+    # ---- 6. quiz generate -> submit, self-grading exploit check ----
+    r = client.post(f"/api/quiz/generate?memory_id={memory_id}", headers=headers)
+    print("POST /api/quiz/generate ->", r.status_code, r.json())
+    questions = r.json().get("questions", [])
+    if questions:
+        q = questions[0]
+        r = client.post("/api/quiz/submit", headers=headers, json={
+            "question_id": q["question_id"], "given_answer": "totally wrong on purpose",
+            "response_time": 1.2, "difficulty": "medium",
+        })
+        print("POST /api/quiz/submit (wrong answer) ->", r.status_code, r.json())
+        assert r.json()["correct"] is False
+    
+        # replay attempt
+        r = client.post("/api/quiz/submit", headers=headers, json={
+            "question_id": q["question_id"], "given_answer": "Mom",
+            "response_time": 0.1, "difficulty": "medium",
+        })
+        print("POST /api/quiz/submit (replay same question_id) ->", r.status_code, r.json(), "[expect error, already used]")
+        assert "error" in r.json()
+    
+    # ---- 7. invalid difficulty rejected ----
+    r = client.post(f"/api/quiz/generate?memory_id={memory_id}&difficulty=nonsense", headers=headers)
+    print("POST /api/quiz/generate?difficulty=nonsense ->", r.status_code, "[expect 422 validation error]")
+    assert r.status_code == 422
+    
+    # ---- 8. upload validation: bad content-type rejected ----
+    r = client.post("/api/memories/analyze", headers=headers,
+                     files={"file": ("test.txt", io.BytesIO(b"not an image"), "text/plain")})
+    print("POST /api/memories/analyze (text file) ->", r.status_code, "[expect 400]")
+    assert r.status_code == 400
+    
+    # ---- 9. security headers present ----
+    r = client.get("/health")
+    print("Security headers:", {k: r.headers.get(k) for k in
+          ["x-content-type-options", "x-frame-options", "strict-transport-security"]})
+    assert r.headers.get("x-content-type-options") == "nosniff"
+    
+    print("\nALL SMOKE TESTS PASSED")

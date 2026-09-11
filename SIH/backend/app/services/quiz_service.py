@@ -40,7 +40,7 @@ def generate_questions(memory: dict, difficulty: str = "medium") -> list[dict]:
         questions.append({
             "question_id": str(uuid.uuid4()),
             "activity_type": "recognition",
-            "question": "Who is standing in this photo with you?",
+            "question": "Who is this?",
             "options": _shuffle([person] + distractors),
             "correct_answer": person,
             "difficulty": difficulty,
@@ -52,7 +52,7 @@ def generate_questions(memory: dict, difficulty: str = "medium") -> list[dict]:
         questions.append({
             "question_id": str(uuid.uuid4()),
             "activity_type": "recall",
-            "question": "Where did you go in this memory?",
+            "question": "What is this place?",
             "options": None,  # free-text recall, harder than multiple choice
             "correct_answer": location,
             "difficulty": difficulty,
@@ -65,7 +65,7 @@ def generate_questions(memory: dict, difficulty: str = "medium") -> list[dict]:
         questions.append({
             "question_id": str(uuid.uuid4()),
             "activity_type": "association",
-            "question": "What were you doing in this photo?",
+            "question": "What is the context of this photo?",
             "options": _shuffle([activity] + distractors),
             "correct_answer": activity,
             "difficulty": difficulty,

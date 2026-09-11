@@ -1,6 +1,6 @@
 import React from 'react';
 
-// Consistent, minimal, rounded, modern SVG icon library for Cognitive Care
+// Consistent, minimal, rounded, modern SVG icon library for Smriti
 export default function Icon({ name, size = 20, color = 'currentColor', className = '', style = {} }) {
   const props = {
     width: size,

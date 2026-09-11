@@ -1,4 +1,4 @@
-// Cognitive Care Unified Frontend API Client
+// Smriti Unified Frontend API Client
 // Uses native fetch() to communicate with FastAPI backend at http://localhost:8000
 // Seamlessly synchronizes with localStorage for offline resilience and fast interactions.
 
@@ -26,7 +26,7 @@ import {
   setSelectedLanguage
 } from './storage';
 
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = '';
 
 function getAuthHeaders() {
   const token = localStorage.getItem('smriti_auth_token');
@@ -229,9 +229,66 @@ export async function adminCreateEntity(entity, data) {
   return { status: 'local', data };
 }
 
+export async function adminUpdateEntity(entity, id, changes) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/${entity}/${id}`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(changes)
+    });
+    if (res.ok) return await res.json();
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Update failed' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Change was not saved.' };
+  }
+}
+
 export async function adminDeleteEntity(entity, id) {
   try {
     const res = await fetch(`${API_BASE_URL}/api/admin/${entity}/${id}`, {
+      method: 'DELETE',
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+  } catch (e) { /* offline */ }
+  return { status: 'local' };
+}
+
+// -------------------------------------------------------------
+// 4b. ADMIN — PER-PATIENT PHOTO FOLDERS
+// -------------------------------------------------------------
+export async function fetchPatientPhotos(patientId) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/patients/${patientId}/photos`, {
+      headers: getAuthHeaders()
+    });
+    if (res.ok) return await res.json();
+  } catch (e) { /* offline */ }
+  return [];
+}
+
+export async function uploadPatientPhoto(patientId, file, caption = '') {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('caption', caption);
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/patients/${patientId}/photos`, {
+      method: 'POST',
+      headers: getAuthHeadersMultipart(),
+      body: formData
+    });
+    if (res.ok) return await res.json();
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Upload failed' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Photo was not uploaded.' };
+  }
+}
+
+export async function deletePatientPhoto(patientId, photoId) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/admin/patients/${patientId}/photos/${photoId}`, {
       method: 'DELETE',
       headers: getAuthHeaders()
     });
@@ -521,6 +578,26 @@ export async function updatePatientDifficulty(patientId, difficulty) {
       body: JSON.stringify({ difficulty })
     });
     if (res.ok) return await res.json();
-  } catch (e) { /* offline */ }
-  return { status: 'local' };
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Failed to update difficulty' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Difficulty was not saved.' };
+  }
+}
+
+// Doctor/nurse-only edit of a patient's clinical details (diagnosis, stage,
+// risk status, caregiver contact). Rejected with 403 for non-clinical roles.
+export async function updatePatientDetails(patientId, changes) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/clinician/patient/${patientId}/details`, {
+      method: 'PATCH',
+      headers: getAuthHeaders(),
+      body: JSON.stringify(changes)
+    });
+    if (res.ok) return await res.json();
+    const err = await res.json().catch(() => ({}));
+    return { error: err.detail || 'Failed to update patient details' };
+  } catch (e) {
+    return { error: 'Backend unavailable. Details were not saved.' };
+  }
 }

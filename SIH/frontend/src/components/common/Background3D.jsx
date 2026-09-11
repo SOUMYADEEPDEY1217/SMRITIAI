@@ -19,12 +19,12 @@ export default function Background3D() {
           gyroControls: false,
           minHeight: 200.00,
           minWidth: 200.00,
-          highlightColor: 0xef7b7b, // Warm coral pink
-          midtoneColor: 0xf9c87c,   // Golden sunset yellow
-          lowlightColor: 0xe68873,  // Deep warm orange
-          baseColor: 0xfff2e6,      // Soft cream/peach base
-          blurFactor: 0.6,
-          speed: 1.0,
+          highlightColor: 0xfef3c7, // Very soft amber tint
+          midtoneColor: 0xfffbeb,   // Warm cream
+          lowlightColor: 0xfcd34d,  // Soft gold
+          baseColor: 0xfaf9f6,      // Soft parchment base
+          blurFactor: 0.8,
+          speed: 0.5,
           zoom: 1.0
         })
       );

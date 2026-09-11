@@ -45,21 +45,33 @@ export default function DoctorDashboard() {
       } else if (sortBy === 'date') {
         return new Date(b.registeredDate || 0) - new Date(a.registeredDate || 0);
       } else if (sortBy === 'score') {
-        const aSessions = sessions.filter(s => s.patientId === a.id);
-        const bSessions = sessions.filter(s => s.patientId === b.id);
-        const aAvg = aSessions.length > 0 ? aSessions.reduce((acc, s) => acc + s.score, 0) / aSessions.length : 0;
-        const bAvg = bSessions.length > 0 ? bSessions.reduce((acc, s) => acc + s.score, 0) / bSessions.length : 0;
+        const aAvg = patientAvgScore(a);
+        const bAvg = patientAvgScore(b);
         return bAvg - aAvg;
       }
       return 0;
     });
 
+  // Roster rows now carry sessionCount/avgScore straight from the backend
+  // (computed server-side from real activity_sessions). Fall back to the
+  // local demo session log only when a patient predates that field.
+  function patientSessionCount(patient) {
+    if (typeof patient.sessionCount === 'number') return patient.sessionCount;
+    return sessions.filter(s => s.patientId === patient.id).length;
+  }
+  function patientAvgScore(patient) {
+    if (typeof patient.avgScore === 'number') return patient.avgScore;
+    const local = sessions.filter(s => s.patientId === patient.id);
+    return local.length > 0 ? Math.round(local.reduce((acc, s) => acc + s.score, 0) / local.length) : 0;
+  }
+
   const totalPatients = patients.length;
-  const totalCompletedSessions = sessions.length;
+  const totalCompletedSessions = patients.reduce((acc, p) => acc + patientSessionCount(p), 0);
   const reviewNeededCount = patients.filter(p => p.riskStatus === 'Review Needed' || p.riskStatus === 'High Attention').length;
-  const overallAvgScore = totalCompletedSessions > 0
-    ? Math.round(sessions.reduce((acc, s) => acc + s.score, 0) / totalCompletedSessions)
-    : 82;
+  const scoredPatients = patients.filter(p => patientSessionCount(p) > 0);
+  const overallAvgScore = scoredPatients.length > 0
+    ? Math.round(scoredPatients.reduce((acc, p) => acc + patientAvgScore(p), 0) / scoredPatients.length)
+    : 0;
 
   return (
     <div className="container-wide" style={{ padding: '2.5rem 1.5rem' }}>
@@ -191,10 +203,8 @@ export default function DoctorDashboard() {
               </tr>
             ) : (
               filteredPatients.map((patient) => {
-                const patientSessions = sessions.filter(s => s.patientId === patient.id);
-                const avgScore = patientSessions.length > 0
-                  ? Math.round(patientSessions.reduce((acc, s) => acc + s.score, 0) / patientSessions.length)
-                  : 'N/A';
+                const sessionCount = patientSessionCount(patient);
+                const avgScore = sessionCount > 0 ? patientAvgScore(patient) : 'N/A';
 
                 return (
                   <tr key={patient.id}>
@@ -230,7 +240,7 @@ export default function DoctorDashboard() {
                     </td>
                     <td>
                       <div style={{ fontWeight: 700 }}>
-                        {patientSessions.length} sessions
+                        {sessionCount} sessions
                       </div>
                       <div style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)' }}>
                         Mean Score: {avgScore !== 'N/A' ? `${avgScore}%` : 'Pending'}

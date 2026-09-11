@@ -63,6 +63,7 @@ def signup(payload: SignupRequest):
 
     hashed_password = pwd_context.hash(payload.password)
     
+    now_iso = datetime.datetime.utcnow().isoformat()
     new_user = {
         "id": uid,
         "name": clean_name,
@@ -70,7 +71,9 @@ def signup(payload: SignupRequest):
         "role": payload.role,
         "difficulty": "Medium",
         "language": payload.language or "en",
-        "hashed_password": hashed_password
+        "hashed_password": hashed_password,
+        "created_at": now_iso,
+        "last_login": now_iso,
     }
 
     firebase_service.add_document("users", new_user, doc_id=uid)
@@ -96,6 +99,9 @@ def login(payload: LoginRequest):
         
     if not pwd_context.verify(payload.password, profile["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid credentials.")
+
+    firebase_service.update_document("users", uid, {"last_login": datetime.datetime.utcnow().isoformat()})
+    profile["last_login"] = datetime.datetime.utcnow().isoformat()
 
     token = _make_token(uid, profile["email"], profile["role"])
     user_info = {k: v for k, v in profile.items() if k != "hashed_password"}

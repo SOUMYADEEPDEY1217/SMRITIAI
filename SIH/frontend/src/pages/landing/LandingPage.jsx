@@ -81,9 +81,9 @@ export default function LandingPage() {
             ============================================================= */}
         <header className="landing-floating-nav" role="banner">
           <div className="landing-nav-inner">
-            <Link to="/" className="brand-minimal-link" aria-label="Cognitive Care Home">
+            <Link to="/" className="brand-minimal-link" aria-label="Smriti Home">
               <span className="brand-accent-dot" aria-hidden="true"></span>
-              <span className="brand-minimal-title">Cognitive Care</span>
+              <span className="brand-minimal-title">Smriti</span>
             </Link>
 
             <nav aria-label="Main navigation" className="landing-nav-menu">
@@ -123,7 +123,7 @@ export default function LandingPage() {
           <div className="editorial-hero-header">
             <div className="hero-overline-tag">
               <span className="brand-accent-dot" style={{ width: 7, height: 7 }}></span>
-              COGNITIVE CARE
+              SMRITI
             </div>
             <h1 className="hero-editorial-title">
               Memory support that feels <span className="accent-highlight">human.</span>
@@ -164,7 +164,7 @@ export default function LandingPage() {
         </section>
 
         {/* =============================================================
-            3. "HOW COGNITIVE CARE WORKS" SECTION
+            3. "HOW SMRITI WORKS" SECTION
             ============================================================= */}
         <section className="editorial-section" id="how-it-works">
           <div className="section-editorial-header">
@@ -173,7 +173,7 @@ export default function LandingPage() {
               THE JOURNEY
             </div>
             <h2 className="section-editorial-title">
-              How Cognitive Care works
+              How Smriti works
             </h2>
             <p style={{ fontSize: '1.15rem', color: '#475467', marginTop: '0.85rem', lineHeight: 1.6 }}>
               A structured five-step path designed around gentle repetition, calming sensory cues, and stress-free engagement.
@@ -831,7 +831,7 @@ export default function LandingPage() {
                 Care teams see the bigger picture.
               </h2>
               <p style={{ fontSize: '1.1rem', color: '#475467', marginTop: '1rem', lineHeight: 1.6 }}>
-                Cognitive Care connects peaceful daily home engagement with clinical visibility. Physicians, nurses, and family caregivers can monitor longitudinal trends without adding stress to the patient.
+                Smriti connects peaceful daily home engagement with clinical visibility. Physicians, nurses, and family caregivers can monitor longitudinal trends without adding stress to the patient.
               </p>
 
               <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -931,7 +931,7 @@ export default function LandingPage() {
               Start a more meaningful way to support memory.
             </h2>
             <p className="final-cta-editorial-sub">
-              Explore Cognitive Care and discover a simpler way to engage with cognitive activities and progress.
+              Explore Smriti and discover a simpler way to engage with cognitive activities and progress.
             </p>
             <div>
               <Link
@@ -961,7 +961,7 @@ export default function LandingPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginBottom: '1rem' }}>
                 <span className="brand-accent-dot" style={{ backgroundColor: '#c26d38' }}></span>
                 <span style={{ fontSize: '1.35rem', fontWeight: 800, letterSpacing: '-0.02em', color: '#ffffff' }}>
-                  Cognitive Care
+                  Smriti
                 </span>
               </div>
               <p style={{ fontSize: '0.92rem', color: '#94a3b8', lineHeight: 1.6, maxWidth: '320px' }}>
@@ -1021,7 +1021,7 @@ export default function LandingPage() {
 
           <div className="footer-bottom-bar">
             <div>
-              &copy; {new Date().getFullYear()} Cognitive Care. Designed for dignity and cognitive wellness.
+              &copy; {new Date().getFullYear()} Smriti. Designed for dignity and cognitive wellness.
             </div>
             <div style={{ display: 'flex', gap: '1.5rem' }}>
               <span>Memory Support</span>

@@ -1,11 +1,11 @@
-# SMRITI-AI — AI Cognitive Care Platform
+# Smriti — AI Platform
 
-An AI-powered cognitive care platform for memory support and cognitive stimulation. The project is organized as a monorepo with clearly separated **frontend** and **backend** directories.
+An AI-powered Smriti platform for memory support and cognitive stimulation. The project is organized as a monorepo with clearly separated **frontend** and **backend** directories.
 
 ## Project Structure
 
 ```
-SIH/
+smriti/
 ├── frontend/         # React + Vite frontend
 │   ├── src/          # Components, pages, activities, utils, styles
 │   ├── public/       # Static assets

@@ -1,4 +1,4 @@
-# DNA.md — AI Cognitive Care Platform
+# DNA.md — AI Smriti Platform
 
 ## Mission
 Help people with cognitive decline (dementia, early Alzheimer's, general memory

@@ -28,6 +28,13 @@ dist-ssr
 *.sln
 *.sw?
 
+# Secrets (root-level, in addition to backend/secrets/ below)
+.env
+secrets/
+Secrets/
+*firebase-adminsdk*.json
+*firebase-service-account*.json
+
 # Backend
 backend/.env
 backend/secrets/

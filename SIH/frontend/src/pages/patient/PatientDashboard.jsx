@@ -85,7 +85,7 @@ export default function PatientDashboard() {
           <div className="quick-access-icon" style={{ background: 'var(--color-primary-tint)' }}>📸</div>
           <div>
             <h3>Memories</h3>
-            <p>Upload & browse your photo memories</p>
+            <p>Browse your photo memories</p>
           </div>
           <Icon name="arrow-right" size={16} color="var(--color-text-muted)" />
         </div>

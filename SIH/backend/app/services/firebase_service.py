@@ -81,19 +81,19 @@ def verify_id_token(id_token: str) -> dict:
             role = uid.split("-")[0]
             if role not in ("patient", "doctor", "admin"):
                 role = "patient"
-            return {"uid": uid, "name": "Cognitive Care User", "role": role, "email": f"{uid}@cognitivecare.com"}
+            return {"uid": uid, "name": "Smriti User", "role": role, "email": f"{uid}@smriti.com"}
 
     # Back-compat for older tokens (format "demo-<role>-<random>") that may
     # still be sitting in a browser's localStorage from before this fix.
     if id_token.startswith("demo-patient"):
-        return {"uid": "patient-1", "name": "Ramesh Patel", "role": "patient", "email": "ramesh@cognitivecare.com"}
+        return {"uid": "patient-1", "name": "Ramesh Patel", "role": "patient", "email": "ramesh@smriti.com"}
     elif id_token.startswith("demo-doctor"):
-        return {"uid": "doc-1", "name": "Dr. Ananya Sharma", "role": "doctor", "email": "ananya@cognitivecare.com"}
+        return {"uid": "doc-1", "name": "Dr. Ananya Sharma", "role": "doctor", "email": "ananya@smriti.com"}
     elif id_token.startswith("demo-admin"):
-        return {"uid": "admin-1", "name": "System Administrator", "role": "admin", "email": "admin@cognitivecare.com"}
+        return {"uid": "admin-1", "name": "System Administrator", "role": "admin", "email": "admin@smriti.com"}
     elif id_token.startswith("test-"):
         return {"uid": id_token, "name": "Test User", "role": "patient", "email": f"{id_token}@example.com"}
-    return {"uid": f"user-{abs(hash(id_token)) % 10000}", "name": "User", "role": "patient", "email": "user@cognitivecare.com"}
+    return {"uid": f"user-{abs(hash(id_token)) % 10000}", "name": "User", "role": "patient", "email": "user@smriti.com"}
 
 
 def add_document(collection: str, data: dict, doc_id: str | None = None) -> str:
@@ -112,6 +112,7 @@ def add_document(collection: str, data: dict, doc_id: str | None = None) -> str:
     actual_id = doc_id or f"auto-{len(_local_store[collection])}"
     record = dict(data)
     record["_id"] = actual_id
+    record["id"] = actual_id
     _local_store[collection][actual_id] = record
     return actual_id
 
@@ -124,6 +125,7 @@ def get_document(collection: str, doc_id: str) -> dict | None:
                 return None
             data = snap.to_dict()
             data["_id"] = snap.id
+            data["id"] = snap.id
             return data
         except Exception:
             pass
@@ -170,6 +172,7 @@ def query_by_field(collection: str, field: str, value) -> list[dict]:
             for d in docs:
                 data = d.to_dict()
                 data["_id"] = d.id
+                data["id"] = d.id
                 results.append(data)
             return results
         except Exception:
@@ -183,7 +186,7 @@ def query_all(collection: str) -> list[dict]:
     if _db:
         try:
             docs = _db.collection(collection).limit(MAX_QUERY_RESULTS).stream()
-            return [{**d.to_dict(), "_id": d.id} for d in docs]
+            return [{**d.to_dict(), "_id": d.id, "id": d.id} for d in docs]
         except Exception:
             pass
 

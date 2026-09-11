@@ -168,11 +168,13 @@ export default function QuizPage() {
 
             <div className="form-group">
               <label className="form-label">Difficulty Level</label>
-              <select className="form-input" value={difficulty} onChange={e => setDifficulty(e.target.value)}>
-                <option value="easy">Easy — Gentle & Supportive</option>
-                <option value="medium">Medium — Balanced Challenge</option>
-                <option value="hard">Hard — Deep Recall</option>
-              </select>
+              <div className="form-input" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'default' }}>
+                <span style={{ textTransform: 'capitalize', fontWeight: 600 }}>{difficulty}</span>
+                <span className="badge badge-neutral" style={{ fontSize: '0.75rem' }}>Set by your care team</span>
+              </div>
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-text-muted)', marginTop: '0.35rem' }}>
+                Your doctor or nurse sets your starting difficulty. It adjusts automatically as you play.
+              </p>
             </div>
 
             {memories.length === 0 && !loading && (

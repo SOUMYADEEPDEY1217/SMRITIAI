@@ -46,12 +46,17 @@ class ActivityResultPayload(BaseModel):
     mistakes: int = Field(default=0, ge=0)
     correct_answers: int = Field(default=1, ge=0)
     response_time_sec: float = Field(default=4.0, ge=0)
+    # NOTE: kept for backward compatibility, but ignored server-side for the
+    # actual adaptive-difficulty calculation - see record_activity_result.
+    # A patient's baseline difficulty is only ever set by a doctor/nurse via
+    # /api/clinician/patient/{id}/difficulty, so it must be read from their
+    # stored profile, never trusted from this request body.
     difficulty: str = "medium"
 
 
 @router.get("/list")
 def list_activities():
-    """Returns the official catalog of 10 Cognitive Care activities."""
+    """Returns the official catalog of 10 Smriti activities."""
     return ACTIVITIES_CATALOG
 
 
@@ -62,7 +67,11 @@ def record_activity_result(payload: ActivityResultPayload, user=Depends(get_curr
     using quiz_service.next_difficulty, and updates Cognitive Fingerprint domains.
     """
     patient_id = payload.patient_id or user.get("uid", "patient-1")
-    current_diff = payload.difficulty.lower()
+
+    # Server-side source of truth for the patient's current difficulty -
+    # never the client-supplied payload.difficulty (see field note above).
+    patient_profile = firebase_service.get_document("users", patient_id) or {}
+    current_diff = str(patient_profile.get("difficulty", "medium")).lower()
     if current_diff not in ["easy", "medium", "hard"]:
         current_diff = "medium"
 

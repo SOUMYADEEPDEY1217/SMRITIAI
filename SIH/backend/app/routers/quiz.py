@@ -14,19 +14,22 @@ Difficulty = Literal["easy", "medium", "hard"]
 
 @router.post("/generate")
 @limiter.limit(settings.RATE_LIMIT_DEFAULT)
-def generate_quiz(request: Request, memory_id: str, difficulty: Difficulty = "medium", user=Depends(get_current_user)):
+def generate_quiz(request: Request, memory_id: str, difficulty: Optional[Difficulty] = None, user=Depends(get_current_user)):
     """
     Step 8: verified memory -> cognitive activity questions.
-    Difficulty defaults to medium; frontend should pass the user's current
-    difficulty level (from their progress doc) once that's wired in.
 
     SECURITY:
     - memory ownership is checked before any content is returned - without
       this, any authenticated user could pass another family's memory_id
       and read their private photo context via the quiz payload.
-    - difficulty is constrained to a Literal (was a free string) - an
-      arbitrary value here would silently break next_difficulty's index
-      lookup logic and pollute stored quiz_attempts with junk values.
+    - difficulty is NEVER taken from client input for a patient's own quiz.
+      It's only the doctor/nurse (via /api/clinician/patient/{id}/difficulty)
+      who may set a patient's baseline difficulty; that value lives on the
+      user's own "users" document and is read here server-side. Any
+      "difficulty" the client sends is ignored for role=patient - accepting
+      it would let a patient bypass the clinician-only restriction simply
+      by editing the request. Non-patient roles (doctor/admin previewing
+      the activity) may still pass an explicit difficulty for testing.
     - each generated question is persisted server-side (quiz_questions
       collection) keyed by question_id, with its correct_answer. The client
       submission later references question_id only - it can never supply
@@ -38,6 +41,10 @@ def generate_quiz(request: Request, memory_id: str, difficulty: Difficulty = "me
 
     if memory.get("user_id") != user["uid"]:
         return {"error": "Not authorized to access this memory"}
+
+    if user.get("role") == "patient" or difficulty is None:
+        profile = firebase_service.get_document("users", user["uid"]) or {}
+        difficulty = (profile.get("difficulty") or "medium").lower()
 
     memory["memory_id"] = memory_id
     questions = quiz_service.generate_questions(memory, difficulty)
@@ -145,6 +152,12 @@ def submit_quiz_answer(request: Request, submission: QuizSubmission, user=Depend
     if question.get("used"):
         return {"error": "This question has already been answered"}
 
+    # Same rule as /generate: a patient's own difficulty is never trusted
+    # from client input - it's read from their profile, which only a
+    # doctor/nurse can change via the clinician endpoint.
+    profile = firebase_service.get_document("users", user["uid"]) or {}
+    server_difficulty = (profile.get("difficulty") or "medium").lower()
+
     correct_answer = question["correct_answer"]
     memory_id = question.get("memory_id")
 
@@ -163,7 +176,7 @@ def submit_quiz_answer(request: Request, submission: QuizSubmission, user=Depend
         "activity_type": question.get("activity_type"),
         "given_answer": submission.given_answer,
         "response_time": submission.response_time,
-        "difficulty": submission.difficulty,
+        "difficulty": server_difficulty,
         "user_id": user["uid"],
         "correct": correct,
         "timestamp": datetime.utcnow().isoformat(),
@@ -178,7 +191,7 @@ def submit_quiz_answer(request: Request, submission: QuizSubmission, user=Depend
     recent_attempts = sorted(recent_attempts, key=lambda a: a.get("timestamp", ""))
     recent = recent_attempts[-10:] if len(recent_attempts) > 10 else recent_attempts
     recent_accuracy = sum(1 for a in recent if a.get("correct")) / len(recent) if recent else 0.5
-    next_diff = quiz_service.next_difficulty(submission.difficulty, recent_accuracy)
+    next_diff = quiz_service.next_difficulty(server_difficulty, recent_accuracy)
 
     return {
         "attempt_id": attempt_id,

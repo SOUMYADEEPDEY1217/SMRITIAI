@@ -36,22 +36,45 @@ except Exception as e:
 GEMINI_MODEL = "gemini-3.6-flash"  # fast + cheap, good fit for a real-time upload flow
 GEMINI_TIMEOUT_S = 12  # fail fast rather than hang a demo on a slow/stuck request
 
-PROMPT = """You are analyzing a personal family photo to help build a memory-recall
-system for an elderly person. Look at the image and respond with ONLY valid JSON,
-no markdown fences, no extra text, in exactly this shape:
+PROMPT = """You are analyzing a personal photo for a memory-recall system for an elderly patient with dementia.
+Carefully look at the image and respond with ONLY valid JSON (no markdown fences, no extra text).
+
+Classify the image into exactly one of these scene_type values:
+  - "people"       — one or more identifiable people are the main subject
+  - "landmark"     — a famous place, monument, tourist attraction, or recognizable building
+  - "event"        — a celebration, ceremony, or special occasion (wedding, birthday, festival)
+  - "place"        — a non-famous but meaningful location (home, garden, hospital, school)
+  - "object"       — a significant object (heirloom, gift, food, document)
+  - "mixed"        — multiple equally important elements
+
+Return exactly this JSON structure:
 
 {
-  "scene": "short scene description e.g. beach, home, park",
-  "activity": "what the people appear to be doing",
-  "location_hint": "best guess at location, or null if unclear",
+  "scene_type": "<one of the 6 values above>",
+  "scene": "short scene description, e.g. beach, living room, Taj Mahal",
+  "activity": "what is happening or being shown",
+  "location_hint": "best guess at location name or null if unclear",
+  "landmark_name": "if scene_type is landmark or event, official name of the place or event, else null",
+  "landmark_description": "if scene_type is landmark, 1–2 sentence factual description a senior might remember, else null",
   "objects": ["list", "of", "notable", "objects"],
-  "people_count": <integer>,
-  "context": "one sentence guess about the occasion/context",
+  "people_count": <integer — number of faces or people visible>,
+  "context": "A detailed paragraph describing the context of the image. Add as much relevant context as possible to help with memory recall.",
+  "quiz_questions": [
+    "Who added this photo?",
+    "What is the context of this photo?",
+    "Who is this? (include if people are in the photo)",
+    "What is this place? (include if it is a tourism place or landmark)"
+  ],
   "confidence": <float between 0 and 1>
 }
 
-This is a HYPOTHESIS to be verified by the family - be honest about uncertainty,
-lower confidence when the image is ambiguous. Never invent specific names."""
+For quiz_questions, ALWAYS include "Who added this photo?" and "What is the context of this photo?". 
+If people are in the photo, include "Who is this?". 
+If it is a tourism place or landmark, include "What is this place?".
+Add any other relevant questions that would help with memory recall based on the image context.
+
+Be honest about uncertainty, lower confidence when ambiguous. Never invent specific names of people."""
+
 
 _configured = False
 
@@ -99,12 +122,17 @@ def _fallback_hypothesis(reason: str) -> dict:
     even when the vision hypothesis itself couldn't be generated.
     """
     return {
+        "scene_type": "unknown",
         "scene": "unknown",
         "activity": "unknown",
         "location_hint": None,
+        "landmark_name": None,
+        "landmark_description": None,
         "objects": [],
         "people_count": 0,
         "context": f"{reason}",
+        "quiz_questions": [],
         "confidence": 0.0,
         "source": "none",
     }
+

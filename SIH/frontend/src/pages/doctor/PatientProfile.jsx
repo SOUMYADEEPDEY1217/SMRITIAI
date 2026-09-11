@@ -3,8 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom';
 import Icon from '../../components/common/Icons';
 import RadarFingerprint from '../../components/charts/RadarFingerprint';
 import TrendLineChart from '../../components/charts/TrendLineChart';
-import { fetchPatientDetail, savePatientNote } from '../../data/api';
+import { fetchPatientDetail, savePatientNote, updatePatientDifficulty, updatePatientDetails } from '../../data/api';
 import { getPatientById, getPatientSessions, getCognitiveDomains, savePatient } from '../../data/storage';
+
+const DETAIL_FIELDS = [
+  { key: 'stage', label: 'Diagnosis / Clinical Stage' },
+  { key: 'riskStatus', label: 'Risk Status' },
+  { key: 'age', label: 'Age' },
+  { key: 'gender', label: 'Gender' },
+  { key: 'primaryCaregiver', label: 'Primary Caregiver' },
+  { key: 'phone', label: 'Caregiver Phone' },
+];
 
 export default function PatientProfile() {
   const { id } = useParams();
@@ -15,6 +24,10 @@ export default function PatientProfile() {
   const [domains, setDomains] = useState(null);
   const [editingNotes, setEditingNotes] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [editingDetails, setEditingDetails] = useState(false);
+  const [detailsDraft, setDetailsDraft] = useState({});
+  const [difficultyError, setDifficultyError] = useState('');
+  const [detailsError, setDetailsError] = useState('');
 
   useEffect(() => {
     async function loadData() {
@@ -22,12 +35,14 @@ export default function PatientProfile() {
       if (data && data.patient) {
         setPatient(data.patient);
         setNoteText(typeof data.patient.notes === 'string' ? data.patient.notes : data.patient.notes?.[0]?.text || '');
+        setDetailsDraft(data.patient);
         setSessions(data.sessions || []);
         setDomains(data.cognitive_domains || null);
       } else {
         const p = getPatientById(id || 'patient-1');
         setPatient(p);
         setNoteText(p?.notes || '');
+        setDetailsDraft(p || {});
         setSessions(getPatientSessions(p?.id || 'patient-1'));
         setDomains(getCognitiveDomains(p?.id || 'patient-1'));
       }
@@ -54,10 +69,45 @@ export default function PatientProfile() {
     setEditingNotes(false);
   };
 
-  const handleDifficultyOverride = (newDiff) => {
+  const handleDifficultyOverride = async (newDiff) => {
+    setDifficultyError('');
+    const previous = patient.difficulty;
+    // Optimistic update, but roll back if the backend rejects it (e.g. a
+    // non-clinical account, or the request fails) so the UI never shows a
+    // pace that wasn't actually saved.
+    setPatient({ ...patient, difficulty: newDiff });
+    const result = await updatePatientDifficulty(patient.id, newDiff);
+    if (result?.error) {
+      setPatient({ ...patient, difficulty: previous });
+      setDifficultyError(result.error);
+      return;
+    }
     const updated = { ...patient, difficulty: newDiff };
     savePatient(updated);
     setPatient(updated);
+  };
+
+  const handleSaveDetails = async () => {
+    setDetailsError('');
+    const changes = {};
+    for (const { key } of DETAIL_FIELDS) {
+      if (detailsDraft[key] !== patient[key]) {
+        changes[key] = key === 'age' ? Number(detailsDraft[key]) || null : detailsDraft[key];
+      }
+    }
+    if (Object.keys(changes).length === 0) {
+      setEditingDetails(false);
+      return;
+    }
+    const result = await updatePatientDetails(patient.id, changes);
+    if (result?.error) {
+      setDetailsError(result.error);
+      return;
+    }
+    const updated = { ...patient, ...changes };
+    savePatient(updated);
+    setPatient(updated);
+    setEditingDetails(false);
   };
 
   // Aggregated Analytics
@@ -87,17 +137,24 @@ export default function PatientProfile() {
           <span>Back to Patient Roster</span>
         </button>
 
-        <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>Calibrate Pace:</span>
-          {['Easy', 'Medium', 'Hard'].map((lvl) => (
-            <button
-              key={lvl}
-              onClick={() => handleDifficultyOverride(lvl)}
-              className={`btn btn-small ${patient.difficulty === lvl ? 'btn-primary' : 'btn-secondary'}`}
-            >
-              {lvl}
-            </button>
-          ))}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.35rem' }}>
+          <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--color-text-muted)' }}>
+              Starting Difficulty:
+            </span>
+            {['Easy', 'Medium', 'Hard'].map((lvl) => (
+              <button
+                key={lvl}
+                onClick={() => handleDifficultyOverride(lvl)}
+                className={`btn btn-small ${patient.difficulty === lvl ? 'btn-primary' : 'btn-secondary'}`}
+              >
+                {lvl}
+              </button>
+            ))}
+          </div>
+          {difficultyError && (
+            <span style={{ fontSize: '0.8rem', color: 'var(--color-danger)' }}>{difficultyError}</span>
+          )}
         </div>
       </div>
 
@@ -127,6 +184,50 @@ export default function PatientProfile() {
             <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Registered Since</span>
             <div style={{ fontWeight: 700, marginTop: '0.2rem' }}>{patient.registeredDate}</div>
           </div>
+        </div>
+      </div>
+
+      {/* Editable Clinical Details */}
+      <div className="smriti-card" style={{ marginBottom: '1.75rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' }}>
+          <h2 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--color-text-title)' }}>
+            Patient Details
+          </h2>
+          {!editingDetails ? (
+            <button onClick={() => { setEditingDetails(true); setDetailsDraft(patient); }} className="btn btn-secondary btn-small">
+              Edit Details
+            </button>
+          ) : (
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button onClick={handleSaveDetails} className="btn btn-primary btn-small">Save</button>
+              <button onClick={() => { setEditingDetails(false); setDetailsDraft(patient); setDetailsError(''); }} className="btn btn-secondary btn-small">Cancel</button>
+            </div>
+          )}
+        </div>
+
+        {detailsError && (
+          <p style={{ fontSize: '0.85rem', color: 'var(--color-danger)', marginBottom: '0.75rem' }}>{detailsError}</p>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem' }}>
+          {DETAIL_FIELDS.map(({ key, label }) => (
+            <div key={key}>
+              <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--color-text-muted)', fontWeight: 700, marginBottom: '0.25rem' }}>
+                {label}
+              </div>
+              {editingDetails ? (
+                <input
+                  className="form-control"
+                  value={detailsDraft[key] ?? ''}
+                  onChange={(e) => setDetailsDraft({ ...detailsDraft, [key]: e.target.value })}
+                />
+              ) : (
+                <div style={{ fontWeight: 600, color: 'var(--color-text-body)' }}>
+                  {patient[key] || <em style={{ color: 'var(--color-text-muted)', fontWeight: 400 }}>Not set</em>}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
