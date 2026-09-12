@@ -91,14 +91,7 @@ export default function PatientDashboard() {
           </div>
           <Icon name="arrow-right" size={16} color="var(--color-primary)" />
         </div>
-        <div className="quick-access-card" onClick={() => navigate('/patient/memories')} role="button" tabIndex={0}>
-          <div className="quick-access-icon" style={{ background: 'var(--color-primary-tint)' }}>📸</div>
-          <div>
-            <h3>Memories</h3>
-            <p>Browse your photo memories</p>
-          </div>
-          <Icon name="arrow-right" size={16} color="var(--color-text-muted)" />
-        </div>
+
         <div className="quick-access-card" onClick={() => navigate('/patient/family')} role="button" tabIndex={0}>
           <div className="quick-access-icon" style={{ background: 'var(--color-accent-tint)' }}>👨‍👩‍👧‍👦</div>
           <div>

@@ -48,7 +48,10 @@ export async function loginUser(email, password, role = 'patient') {
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to authenticate');
+    let msg = 'Failed to authenticate';
+    if (typeof errorData.detail === 'string') msg = errorData.detail;
+    else if (Array.isArray(errorData.detail)) msg = errorData.detail[0]?.msg || msg;
+    throw new Error(msg);
   }
 
   const data = await res.json();
@@ -70,7 +73,10 @@ export async function signupUser(name, email, password, role = 'patient', langua
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to create account');
+    let msg = 'Failed to create account';
+    if (typeof errorData.detail === 'string') msg = errorData.detail;
+    else if (Array.isArray(errorData.detail)) msg = errorData.detail[0]?.msg || msg;
+    throw new Error(msg);
   }
 
   const data = await res.json();

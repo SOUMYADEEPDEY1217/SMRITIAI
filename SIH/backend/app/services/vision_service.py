@@ -91,28 +91,53 @@ def _ensure_configured():
 
 
 def analyze_photo(image_bytes: bytes, mime_type: str = "image/jpeg") -> dict:
-    if not _GENAI_AVAILABLE:
-        return _fallback_hypothesis("Vision AI library not installed on the server.")
-    if not settings.GEMINI_API_KEY:
-        return _fallback_hypothesis("No Gemini API key configured.")
+    import base64
+    import requests
+    
+    # Try Gemini first
+    if _GENAI_AVAILABLE and settings.GEMINI_API_KEY:
+        try:
+            _ensure_configured()
+            model = genai.GenerativeModel(GEMINI_MODEL)
+            response = model.generate_content(
+                [PROMPT, {"mime_type": mime_type, "data": image_bytes}],
+                request_options={"timeout": GEMINI_TIMEOUT_S},
+            )
+            text = response.text.strip().strip("```json").strip("```").strip()
+            result = json.loads(text)
+            result["source"] = "cloud"
+            return result
+        except json.JSONDecodeError as e:
+            print(f"Gemini returned non-JSON response: {e}, falling back to Ollama")
+        except Exception as e:
+            print(f"Gemini analysis failed: {e}, falling back to Ollama")
+    else:
+        print("Gemini unavailable or unconfigured, falling back to Ollama")
 
+    # Fallback to local Ollama/Llava
     try:
-        _ensure_configured()
-        model = genai.GenerativeModel(GEMINI_MODEL)
-        response = model.generate_content(
-            [PROMPT, {"mime_type": mime_type, "data": image_bytes}],
-            request_options={"timeout": GEMINI_TIMEOUT_S},
-        )
-        text = response.text.strip().strip("```json").strip("```").strip()
-        result = json.loads(text)
-        result["source"] = "cloud"
-        return result
-    except json.JSONDecodeError as e:
-        print(f"Gemini returned non-JSON response: {e}")
-        return _fallback_hypothesis("AI response could not be parsed. Please fill in details manually.")
+        b64_img = base64.b64encode(image_bytes).decode('utf-8')
+        payload = {
+            "model": settings.OLLAMA_MODEL,
+            "prompt": PROMPT,
+            "images": [b64_img],
+            "stream": False,
+            "format": "json"
+        }
+        resp = requests.post("http://localhost:11434/api/generate", json=payload, timeout=60)
+        if resp.ok:
+            text = resp.json().get("response", "").strip()
+            text = text.strip("```json").strip("```").strip()
+            result = json.loads(text)
+            result["source"] = "local_ollama"
+            return result
+        else:
+            print(f"Ollama returned {resp.status_code}: {resp.text}")
     except Exception as e:
-        print(f"Gemini analysis failed: {e}")
-        return _fallback_hypothesis("Could not analyze image automatically - AI may be rate-limited, offline, or unreachable.")
+        print(f"Local Ollama/Llava analysis failed: {e}")
+
+    # Final fallback if both fail
+    return _fallback_hypothesis("Could not analyze image automatically - both Gemini and local AI failed or were unavailable.")
 
 
 def _fallback_hypothesis(reason: str) -> dict:

@@ -11,7 +11,7 @@ import PatientProfile from './pages/doctor/PatientProfile';
 import AdminDashboard from './pages/admin/AdminDashboard';
 
 // New Feature Pages
-import MemoriesPage from './pages/patient/MemoriesPage';
+
 import FamilyMembersPage from './pages/patient/FamilyMembersPage';
 import RemindersPage from './pages/patient/RemindersPage';
 import QuizPage from './pages/patient/QuizPage';
@@ -71,7 +71,7 @@ export default function App() {
           <Route path="/patient" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
           <Route path="/patient/result" element={<ProtectedRoute allowedRoles={['patient']}><ResultScreen /></ProtectedRoute>} />
           <Route path="/patient/fingerprint" element={<ProtectedRoute allowedRoles={['patient']}><CognitiveFingerprint /></ProtectedRoute>} />
-          <Route path="/patient/memories" element={<ProtectedRoute allowedRoles={['patient']}><MemoriesPage /></ProtectedRoute>} />
+
           <Route path="/patient/family" element={<ProtectedRoute allowedRoles={['patient']}><FamilyMembersPage /></ProtectedRoute>} />
           <Route path="/patient/reminders" element={<ProtectedRoute allowedRoles={['patient']}><RemindersPage /></ProtectedRoute>} />
           <Route path="/patient/quiz" element={<ProtectedRoute allowedRoles={['patient']}><QuizPage /></ProtectedRoute>} />

@@ -62,6 +62,7 @@ export default function AdminDashboard() {
   const [managingPatient, setManagingPatient] = useState(null);
   const [patientPhotos, setPatientPhotos] = useState([]);
   const [patientPhotoCaption, setPatientPhotoCaption] = useState('');
+  const [patientAiDraft, setPatientAiDraft] = useState(null);
   const [isUploadingPatientPhoto, setIsUploadingPatientPhoto] = useState(false);
   const [patientPhotoError, setPatientPhotoError] = useState('');
 
@@ -114,18 +115,69 @@ export default function AdminDashboard() {
     setPatientPhotos(await fetchPatientPhotos(patient.id));
   };
 
-  const handleUploadPatientPhoto = async (e) => {
+  const handleUploadPatientPhoto = async (e, analyzeWithAi = false) => {
     const file = e.target.files[0];
     if (!file || !managingPatient) return;
     setIsUploadingPatientPhoto(true);
     setPatientPhotoError('');
-    const result = await uploadPatientPhoto(managingPatient.id, file, patientPhotoCaption);
+    
+    const dataUrl = await new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (event) => resolve(event.target.result);
+      reader.readAsDataURL(file);
+    });
+
+    let draft = {
+      file,
+      url: dataUrl,
+      caption: patientPhotoCaption,
+      relationship: '',
+      location: '',
+      aiHypothesis: null
+    };
+    
+    if (analyzeWithAi) {
+       try {
+         const aiResult = await analyzeMemoryPhoto(file);
+         if (aiResult?.hypothesis) {
+           draft.caption = aiResult.hypothesis.context || draft.caption;
+           draft.location = aiResult.hypothesis.landmark_name || '';
+           draft.relationship = aiResult.hypothesis.people_count ? 'Family/Friend' : '';
+           draft.aiHypothesis = aiResult.hypothesis;
+         }
+       } catch (err) {
+         console.error('AI analysis failed:', err);
+       }
+    }
+
+    setPatientAiDraft(draft);
     setIsUploadingPatientPhoto(false);
     e.target.value = '';
+  };
+
+  const cancelPatientPhotoDraft = () => {
+    setPatientAiDraft(null);
+  };
+
+  const submitPatientPhotoDraft = async () => {
+    if (!patientAiDraft || !managingPatient) return;
+    setIsUploadingPatientPhoto(true);
+    setPatientPhotoError('');
+    
+    const result = await uploadPatientPhoto(
+      managingPatient.id, 
+      patientAiDraft.file, 
+      patientAiDraft.caption,
+      patientAiDraft.relationship,
+      patientAiDraft.location
+    );
+    
+    setIsUploadingPatientPhoto(false);
     if (result?.error) {
       setPatientPhotoError(result.error);
       return;
     }
+    setPatientAiDraft(null);
     setPatientPhotoCaption('');
     setPatientPhotos(await fetchPatientPhotos(managingPatient.id));
   };
@@ -1011,38 +1063,88 @@ export default function AdminDashboard() {
         title={managingPatient ? `Photos — ${managingPatient.name}` : 'Patient Photos'}
         footer={<button onClick={() => setIsPhotoManagerOpen(false)} className="btn btn-secondary">Close</button>}
       >
-        <div className="form-group">
-          <label className="form-label">Caption (optional)</label>
-          <input
-            type="text"
-            className="form-control"
-            value={patientPhotoCaption}
-            onChange={(e) => setPatientPhotoCaption(e.target.value)}
-            placeholder="e.g. Family visit, March 2026"
-          />
-        </div>
+        {patientAiDraft ? (
+          <div style={{ background: 'var(--color-bg-surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-border)', marginBottom: '1rem' }}>
+            <img src={patientAiDraft.url} alt="Preview" style={{ width: '100%', maxHeight: '180px', objectFit: 'contain', borderRadius: '8px', marginBottom: '1rem' }} />
+            
+            {patientAiDraft.aiHypothesis && (
+              <div style={{ marginBottom: '1rem', padding: '0.7rem', background: 'var(--color-indigo-tint, #eef2ff)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--color-primary)' }}>
+                <strong>AI says:</strong> {patientAiDraft.aiHypothesis.context || 'Scene analyzed — please review and confirm details below.'}
+              </div>
+            )}
+            
+            <div className="form-group">
+              <label className="form-label">Caption / Description</label>
+              <input type="text" className="form-control" value={patientAiDraft.caption}
+                onChange={(e) => setPatientAiDraft({...patientAiDraft, caption: e.target.value})} />
+            </div>
 
-        <label className="btn btn-primary" style={{ cursor: 'pointer', opacity: isUploadingPatientPhoto ? 0.7 : 1, display: 'inline-block', marginBottom: '1rem' }}>
-          <span>{isUploadingPatientPhoto ? 'Uploading...' : 'Upload Photo'}</span>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            onChange={handleUploadPatientPhoto}
-            disabled={isUploadingPatientPhoto}
-            style={{ display: 'none' }}
-          />
-        </label>
+            <div className="form-group">
+              <label className="form-label">👥 Relationship / People in Photo</label>
+              <input type="text" className="form-control" value={patientAiDraft.relationship} placeholder="e.g. Grandma, Uncle Raj"
+                onChange={(e) => setPatientAiDraft({...patientAiDraft, relationship: e.target.value})} />
+            </div>
 
-        {patientPhotoError && (
-          <p style={{ fontSize: '0.85rem', color: 'var(--color-danger)', marginBottom: '1rem' }}>{patientPhotoError}</p>
-        )}
+            <div className="form-group">
+              <label className="form-label">📍 Location / Place</label>
+              <input type="text" className="form-control" value={patientAiDraft.location} placeholder="e.g. Park, Home"
+                onChange={(e) => setPatientAiDraft({...patientAiDraft, location: e.target.value})} />
+            </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
-          {patientPhotos.length === 0 ? (
-            <p style={{ color: 'var(--color-text-muted)', gridColumn: '1 / -1' }}>
-              No photos uploaded yet for this patient.
-            </p>
-          ) : (
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
+              <button onClick={cancelPatientPhotoDraft} className="btn btn-secondary">Cancel</button>
+              <button onClick={submitPatientPhotoDraft} className="btn btn-primary" disabled={isUploadingPatientPhoto}>
+                {isUploadingPatientPhoto ? 'Saving...' : 'Confirm & Upload'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="form-group">
+              <label className="form-label">Caption (optional)</label>
+              <input
+                type="text"
+                className="form-control"
+                value={patientPhotoCaption}
+                onChange={(e) => setPatientPhotoCaption(e.target.value)}
+                placeholder="e.g. Family visit, March 2026"
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+              <label className="btn btn-primary" style={{ cursor: 'pointer', opacity: isUploadingPatientPhoto ? 0.7 : 1, display: 'inline-block' }}>
+                <span>{isUploadingPatientPhoto ? 'Uploading...' : 'Upload Photo'}</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => handleUploadPatientPhoto(e, false)}
+                  disabled={isUploadingPatientPhoto}
+                  style={{ display: 'none' }}
+                />
+              </label>
+              <label className="btn btn-secondary" style={{ cursor: 'pointer', opacity: isUploadingPatientPhoto ? 0.7 : 1, display: 'inline-block' }}>
+                <Icon name="brain" size={16} color="currentColor" />
+                <span style={{ marginLeft: '0.5rem' }}>{isUploadingPatientPhoto ? 'Analyzing...' : 'Analyze via AI'}</span>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={(e) => handleUploadPatientPhoto(e, true)}
+                  disabled={isUploadingPatientPhoto}
+                  style={{ display: 'none' }}
+                />
+              </label>
+            </div>
+
+            {patientPhotoError && (
+              <p style={{ fontSize: '0.85rem', color: 'var(--color-danger)', marginBottom: '1rem' }}>{patientPhotoError}</p>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '0.75rem' }}>
+              {patientPhotos.length === 0 ? (
+                <p style={{ color: 'var(--color-text-muted)', gridColumn: '1 / -1' }}>
+                  No photos uploaded yet for this patient.
+                </p>
+              ) : (
             patientPhotos.map((photo) => (
               <div key={photo.id} style={{ position: 'relative', borderRadius: 'var(--radius-md)', overflow: 'hidden', border: '1px solid var(--color-border)' }}>
                 <img src={photo.url} alt={photo.caption || 'Patient photo'} style={{ width: '100%', height: '110px', objectFit: 'cover', display: 'block' }} />
@@ -1062,6 +1164,8 @@ export default function AdminDashboard() {
             ))
           )}
         </div>
+        </>
+        )}
       </Modal>
 
       <Modal
