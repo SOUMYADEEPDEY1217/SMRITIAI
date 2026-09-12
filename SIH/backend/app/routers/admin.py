@@ -17,6 +17,11 @@ import uuid
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 admin_only = require_role("admin")
+# Adding clinical/memory content about a patient (used for quiz generation)
+# is allowed for doctors/nurses too, not just admin - photo-folder uploads
+# below stay admin_only per the original spec, but memory content (people,
+# location, activity, story) is something a doctor legitimately enters too.
+clinical_or_admin = require_role("doctor", "admin")
 
 PHOTO_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp"}
 MAX_PHOTO_SIZE_BYTES = 10 * 1024 * 1024  # 10MB per photo
@@ -87,11 +92,14 @@ def update_patient(patient_id: str, changes: dict, user=Depends(admin_only)):
 
 @router.delete("/patients/{patient_id}")
 def delete_patient(patient_id: str, user=Depends(admin_only)):
-    """Removes a patient's account. Also cleans up their uploaded photos."""
+    """Removes a patient's account. Also cleans up their uploaded photos
+    and any linked memories created from those photos."""
     photos = firebase_service.query_by_field("patient_photos", "patient_id", patient_id)
     for photo in photos:
+        photo_id = photo.get("id") or photo.get("_id")
         cloudinary_service.delete_photo(photo["cloudinary_id"])
-        firebase_service.delete_document("patient_photos", photo["_id"])
+        firebase_service.delete_document("patient_photos", photo_id)
+        firebase_service.delete_document("memories", f"mem-{photo_id}")
     firebase_service.delete_document("users", patient_id)
     return {"status": "success"}
 
@@ -323,7 +331,35 @@ async def upload_patient_photo(
         "uploaded_at": datetime.utcnow().isoformat(),
     }
     firebase_service.add_document("patient_photos", record, doc_id=photo_id)
-    return {"status": "success", "photo": {**record, "id": photo_id}}
+
+    # Also create a matching "memories" record so this photo is actually
+    # eligible for quiz generation (quiz.py only ever reads from
+    # "memories", never from "patient_photos"). Without this, every photo
+    # an admin uploaded sat in the gallery but could never be quizzed on -
+    # the two collections existed side by side but were never connected.
+    # A caption/relationship/location is enough to build at least one
+    # question (recognition and/or recall); if none were given, the memory
+    # still gets created so it appears in the patient's memory list, it
+    # just won't produce a "who/where" question until details are added.
+    memory_id = f"mem-{photo_id}"
+    memory_data = {
+        "memory_id": memory_id,
+        "photo_url": url,
+        "people": [relationship.strip()] if relationship.strip() else [],
+        "location": location.strip() or None,
+        "activity": caption.strip() or None,
+        "event": None,
+        "story": caption.strip() or None,
+        "scene": caption.strip() or None,
+        "objects": [],
+        "occurred_at": None,
+        "user_id": patient_id,
+        "verified": True,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    firebase_service.add_document("memories", memory_data, doc_id=memory_id)
+
+    return {"status": "success", "photo": {**record, "id": photo_id}, "memory_id": memory_id}
 
 
 @router.get("/patients/{patient_id}/photos")
@@ -337,14 +373,26 @@ def delete_patient_photo(patient_id: str, photo_id: str, user=Depends(admin_only
     photo = firebase_service.get_document("patient_photos", photo_id)
     if not photo or photo.get("patient_id") != patient_id:
         raise HTTPException(status_code=404, detail="Photo not found")
+    if photo.get("cloudinary_id"):
+        cloudinary_service.delete_photo(photo["cloudinary_id"])
     firebase_service.delete_document("patient_photos", photo_id)
+    # Clean up the linked quiz-eligible memory created alongside this photo
+    # (see upload_patient_photo) - otherwise a deleted photo's content
+    # could still surface as a quiz question with no photo to back it.
+    firebase_service.delete_document("memories", f"mem-{photo_id}")
     return {"status": "success"}
 
 @router.post("/patients/{patient_id}/memories")
-def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depends(admin_only)):
+def save_admin_patient_memory(patient_id: str, memory: VerifiedMemory, user=Depends(clinical_or_admin)):
     """
-    Admin-only endpoint to save a verified memory on behalf of a patient.
-    Requires a valid pending_memories record created by this admin.
+    Admin/doctor/nurse endpoint to save a verified memory on behalf of a
+    patient - this is the content quiz.py's generate_quiz later turns into
+    questions, so a patient only ever gets quizzed on something their care
+    team actually entered (see memories.py: analyze_memory/save_memory,
+    which now reject the patient role outright).
+    Requires a valid pending_memories record created by this same caller's
+    own /api/memories/analyze call (proves they actually ran the photo
+    through analysis first, not just making up a memory_id).
     """
     patient = firebase_service.get_document("users", patient_id)
     if not patient or patient.get("role") != "patient":

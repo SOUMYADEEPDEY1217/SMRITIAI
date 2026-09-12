@@ -29,10 +29,23 @@ async def analyze_memory(
     still confirms/corrects each one before anything is saved. This endpoint
     never writes people[] to the memory itself, it only proposes them.
 
+    Patients no longer add their own memories - only a doctor/nurse or admin
+    can, from the clinical/admin side, so the quiz content a patient sees is
+    always something their care team actually verified. See save_memory
+    below for where that's enforced for real; this analyze step also blocks
+    the patient role so there's no dead-end flow that lets them generate a
+    hypothesis they can never save.
+
     SECURITY: validates content-type and size before doing anything with the
     upload; rate-limited since this triggers a vision-model call + Cloudinary
     upload + face detection per request (cost/compute abuse vector).
     """
+    if user.get("role") == "patient":
+        raise HTTPException(
+            status_code=403,
+            detail="Memories are added by your doctor, nurse, or admin - not from your own account.",
+        )
+
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, or WEBP images are allowed.")
 
@@ -107,6 +120,14 @@ def save_memory(memory: VerifiedMemory, user=Depends(get_current_user)):
     """
     Step 6-7: called after family confirms/corrects the hypothesis.
 
+    Only for a doctor/nurse or admin saving something to their OWN account
+    context (rare - normally they use the admin/clinician endpoint that
+    attributes a memory to a specific patient_id). Patients themselves are
+    blocked here: all patient-visible memory content now comes from the
+    care team, so quiz questions are always grounded in something a doctor,
+    nurse, or admin actually entered - never something the patient added
+    unsupervised.
+
     SECURITY: memory_id is client-supplied and used as the Firestore doc ID.
     Without an ownership trail, any authenticated user could submit an
     existing memory_id belonging to someone else and silently overwrite
@@ -124,6 +145,12 @@ def save_memory(memory: VerifiedMemory, user=Depends(get_current_user)):
     always orderable even if occurred_at is never filled in - this is what
     the sequence quiz activity (quiz.py: /generate-sequence) sorts on.
     """
+    if user.get("role") == "patient":
+        raise HTTPException(
+            status_code=403,
+            detail="Memories are added by your doctor, nurse, or admin - not from your own account.",
+        )
+
     pending = firebase_service.get_document("pending_memories", memory.memory_id)
     if not pending or pending.get("user_id") != user["uid"]:
         raise HTTPException(
